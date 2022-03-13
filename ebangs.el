@@ -434,8 +434,8 @@ This should be set before `ebangs-global-minor-mode' is called.")
 			(kill-region (point-min) (point-max))
 			(message "%S" insts)
 			(dolist (i insts)
-				(mapc #'ebangs--claim-number (ebangs-get 'owned-numbers i))
-				(ebangs-add-inst (ebangs-get 'file i) i)))))
+				(ebangs--index-and-claim i)
+				(puthash i t (gethash (ebangs-get 'file i) ebangs--files))))))
 (defun ebangs-get-paragraph (name)
 	"Get the string between the next lines with `Begin NAME:' and `End NAME.'."
 	(save-match-data
