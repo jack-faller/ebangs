@@ -204,7 +204,7 @@ Through an error if unique keys are shared."
 
 (defvar ebangs-types (make-hash-table :test 'equal)
 	"A hash map from the string of bangs to instancing functions.")
-(defvar ebangs-bangs-list (list)
+(defvar ebangs-types-list (list)
 	"A list of bangs which appear in `ebangs-types'.")
 (defun ebangs-set-type (bang instance-fn)
 	"Set the instance function to the string BANG.
@@ -215,9 +215,9 @@ It returns an ebangs instance and leaves the point on the end of the bang's
 body."
 	(if instance-fn
 			(progn
-				(unless (member bang ebangs-bangs-list) (push bang ebangs-bangs-list))
+				(unless (member bang ebangs-types-list) (push bang ebangs-types-list))
 				(puthash bang instance-fn ebangs-types))
-		(setf ebangs-bangs-list (remove bang ebangs-bangs-list))
+		(setf ebangs-types-list (remove bang ebangs-types-list))
 		(remhash bang ebangs-types)))
 (defun ebangs--instance (beg)
 	"Instance a bang by calling its instance function.
@@ -309,7 +309,7 @@ Return a list of their instances."
 	(save-excursion
 		(goto-char (point-min))
 		(save-match-data
-			(let ((rx (regexp-opt ebangs-bangs-list)))
+			(let ((rx (regexp-opt ebangs-types-list)))
 				(cl-loop
 				 with out = (make-hash-table)
 				 while (re-search-forward rx nil t)
@@ -420,6 +420,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		 (ebangs--ht-loop _ table ebangs--files
 			 nconc (ebangs--ht-loop i _ table collect i))
 		 (current-buffer))
+		(insert " ")
 		(prin1 ebangs--file-update-times (current-buffer))
 		(write-region nil nil ebangs-link-file)))
 (defun ebangs-deserialize ()
