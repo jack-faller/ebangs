@@ -266,8 +266,7 @@ It should insert the body of the bang and may have any other side effects it wis
 				(ebangs--set-insts file (ebangs--read-buffer-instances file)))
 		(with-temp-buffer
 			(ignore-errors (insert-file-contents file))
-			(with-current-buffer buffer
-				(ebangs--set-insts file (ebangs--read-buffer-instances file))))))
+			(ebangs--set-insts file (ebangs--read-buffer-instances file)))))
 
 (defun ebangs--file-time (file)
 	(or (file-attribute-modification-time (file-attributes file))
