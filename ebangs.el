@@ -147,11 +147,12 @@ TABLE for a non-unique indexes is a hash map from a value to a VALUE-TABLE,
 and VALUE-TABLEs are hash maps from an instance with the related key and value
 to t.")
 (defun ebangs-index-on (key &optional unique test)
-	"Index KEY in `ebangs--indexes'.
+	"Index on KEY; must be called before `ebangs-global-minor-mode'.
 When UNIQUE is non-nil, instances with KEY can not share values for KEY.
 TEST should be a valid hash map test used to determine the uniqueness of values
 of KEY (even if UNIQUE is nil); it is 'eql by default.
-Records whose value for KEY is nil will not be indexed."
+Records whose value for KEY is nil will not be indexed, all others will be
+registered in `ebangs--indexes'."
 	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexes))
 (ebangs-index-on 'type)
 (ebangs-index-on 'id t)
