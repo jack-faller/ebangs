@@ -434,13 +434,15 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		(insert " ")
 		(prin1 ebangs--file-update-times (current-buffer))
 		(write-region nil nil ebangs-link-file)))
+
 (defun ebangs-deserialize ()
 	"Load instances and metadata from `ebangs-link-file'."
 	(with-temp-buffer
 		(if (file-exists-p ebangs-link-file)
 				(insert-file-contents ebangs-link-file)
-			(insert "()")
-			(prin1 (make-hash-table) (current-buffer)))
+			(insert "() ")
+			(prin1 (make-hash-table :test 'equal) (current-buffer)))
+		(goto-char (point-min))
 		(let* ((insts (read (current-buffer)))
 					 (update-times (read (current-buffer))))
 			(setf ebangs--file-update-times update-times)
