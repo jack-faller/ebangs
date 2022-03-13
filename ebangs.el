@@ -146,10 +146,11 @@ TABLE for a non-unique indexes is a hash map from a value to a VALUE-TABLE,
 and VALUE-TABLEs are hash maps from an instance with the related key and value
 to t.")
 (defun ebangs-index-on (key &optional unique test)
-	"Index key in `ebangs--indexes'.
+	"Index KEY in `ebangs--indexes'.
 When UNIQUE is non-nil, instances with KEY can not share values for KEY.
 TEST should be a valid hash map test used to determine the uniqueness of values
-of KEY (even if UNIQUE is nil); it is 'eql by default."
+of KEY (even if UNIQUE is nil); it is 'eql by default.
+Records whose value for KEY is nil will not be indexed."
 	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexes))
 (ebangs-index-on 'type)
 (ebangs-index-on 'id t)
@@ -458,9 +459,19 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		(unless unique (error "Key %S is not unique" key))
 		(gethash value table)))
 
-(defmacro ebangs-loop (loop-keyword var &rest body)
+(defmacro ebangs-loop (accumulator var &rest body)
+	"Iterate over and collect matching instances.
+\(ebangs-loop ACCUMULATOR VAR [=> COLLECTION-FORM]
+    [:from INDEX] or [:from (INDEX VALUE)]
+  BODY)
+Loop with VAR bound to all bang instances, or just those with the key INDEX, set
+to the value VALUE if those are provided and INDEX is an indexed key.
+If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
+`cl-loop' accumulator ACCUMULATOR."
 	(declare (indent defun))
-	(let* ((collection-form
+	(let* (;; the accumulation form to use if loops must be nested
+				 (secondary-accumulator (if (eq accumulator 'collect) 'nconc accumulator))
+				 (collection-form
 					(if (eq '=> (car body))
 							(prog1 (nth 1 body)
 								(setf body (nthcdr 2 body)))
@@ -482,7 +493,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 					`(let ((,table (gethash ,from-value ebangs--files)))
 						 (when ,table
 							 (ebangs--ht-loop ,var ,(gensym "_") ,table
-								 if ,cond ,loop-keyword ,collection-form))))
+								 if ,cond ,accumulator ,collection-form))))
 				 ((eq from-key 'file) `(ebangs-select ,var => ,collection-form ,@body))
 				 ((and from-key from-value)
 					`(let ((,table (gethash ',from-key ebangs--indexes))
@@ -492,19 +503,21 @@ This should be set before `ebangs-global-minor-mode' is called.")
 						 (setf ,value-table (gethash ,from-value (cdr ,table)))
 						 (when ,value-table
 							 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-								 if ,cond ,loop-keyword ,collection-form))))
+								 if ,cond ,accumulator ,collection-form))))
 				 (from-key
 					`(let ((,table (gethash ',from-key ebangs--indexes)))
 						 (unless ,table (error "Key %S not indexed" ',from-key))
 						 (if (car ,table) (ebangs--ht-loop ,(gensym "_") ,var (cdr ,table)
-																if ,cond ,loop-keyword ,collection-form)
+																if ,cond ,accumulator ,collection-form)
 							 (ebangs--ht-loop ,(gensym "_") ,value-table (cdr ,table)
-								 nconc (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-												 if ,cond ,loop-keyword ,collection-form)))))
+								 ,secondary-accumulator
+								 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
+									 if ,cond ,accumulator ,collection-form)))))
 				 (t
 					`(ebangs--ht-loop ,(gensym "_") ,value-table ebangs--files
-						 nconc (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-										 if ,cond ,loop-keyword ,collection-form)))))))
+						 ,secondary-accumulator
+						 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
+							 if ,cond ,accumulator ,collection-form)))))))
 (defmacro ebangs-select (var &rest body)
 	"`ebangs-loop' with the keyword collect."
 	(declare (indent defun))
