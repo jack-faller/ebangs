@@ -261,12 +261,13 @@ It should insert the body of the bang and may have any other side effects it wis
 
 (defun ebangs--update-file (&optional file buffer)
 	(setf file (or file buffer-file-name))
-	(setf buffer (or buffer (get-file-buffer file)
-									 (with-current-buffer (generate-new-buffer "*ebangs--temp-update*")
-										 (ignore-errors (insert-file-contents file))
-										 (current-buffer))))
-	(with-current-buffer buffer
-		(ebangs--set-insts file (ebangs--read-buffer-instances file))))
+	(if (setf buffer (or buffer (get-file-buffer file)))
+			(with-current-buffer buffer
+				(ebangs--set-insts file (ebangs--read-buffer-instances file)))
+		(with-temp-buffer
+			(ignore-errors (insert-file-contents file))
+			(with-current-buffer buffer
+				(ebangs--set-insts file (ebangs--read-buffer-instances file))))))
 
 (defun ebangs--file-time (file)
 	(or (file-attribute-modification-time (file-attributes file))
