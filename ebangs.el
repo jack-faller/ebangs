@@ -6,9 +6,9 @@
 ;; be entered into files and then accessed at a later date.
 
 ;;; Code:
+
 (require 'cl-lib)
 (require 'rx)
-;;; code:
 (defun base94->int (str)
 	"Convert a string to an elisp number.
 STR should be the string of a base 94 integer (using the char range 33 to 126)
@@ -30,9 +30,15 @@ NUM should be an elisp integer."
 						 finally (return (apply #'string acc)))))
 
 (defvar-local ebangs--buffer-inhibit nil)
-(defvar ebangs--unclaimed-numbers (list))
+(defvar ebangs--unclaimed-numbers (make-hash-table))
 (defvar ebangs--next-free-number 0)
-(defvar ebangs--free-numbers (list)
+(defun ebangs--ht-first-key (ht)
+	"Get the first key in hash table HT or nil if empty."
+	(if (hash-table-empty-p ht)
+			nil
+		(cl-block nil (maphash (lambda (a _) (cl-return a))
+													 ht))))
+(defvar ebangs--free-numbers (make-hash-table)
 	"Free numbers below `ebangs--next-free-number'.")
 (defun ebangs--claim-number (num)
 	"Claim ownership of a NUM for use as an id.
@@ -42,35 +48,35 @@ Through an error if NUM is already claimed."
 	(if (>= num ebangs--next-free-number)
 			(prog1 num
 				(cl-loop for i from ebangs--next-free-number below num
-								 do (push i ebangs--free-numbers))
+								 do (puthash i t ebangs--free-numbers))
 				(setf ebangs--next-free-number (+ num 1)))
-		(if (or (memq num ebangs--free-numbers) (memq num ebangs--unclaimed-numbers))
-				(setf ebangs--free-numbers (delq num ebangs--free-numbers)
-							ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
+		(if (or (gethash num ebangs--free-numbers) (gethash num ebangs--unclaimed-numbers))
+				(progn
+					(remhash num ebangs--free-numbers)
+					(remhash num ebangs--unclaimed-numbers))
 			(error "Number \"%s\" already claimed" (int->base94 num)))))
 (defun ebangs-get-number ()
 	"Get a unique number for use as an id."
 	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
-	(let ((num (if (null ebangs--free-numbers)
-								 (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number))
-							 (pop ebangs--free-numbers))))
-		(push num ebangs--unclaimed-numbers)
+	(let ((num (or (ebangs--ht-first-key ebangs--free-numbers) (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number)))))
+		(remhash num ebangs--free-numbers)
+		(puthash num t ebangs--unclaimed-numbers)
 		num))
 (defun ebangs--delete-number (num)
 	"Free NUM, allowing it to be returned from `ebangs-get-number'.
 NUM should be an integer that should no longer be in use as an id, or in a file."
 	(unless (numberp num)
 		(error "Expected num to ebangs--delete-number, got %S" num))
-	(setf ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
-	(unless (memq num ebangs--free-numbers) (push num ebangs--free-numbers)))
+	(remhash num ebangs--unclaimed-numbers)
+	(puthash num t ebangs--free-numbers))
 
 (defun ebangs--number-bench (times count)
 	"Get COUNT numbers are delete/claim random ones TIMES times."
 	(prog1 (benchmark-run 1
-						(let ((nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number)))))
-							(dotimes (_ times)
-								(ignore-errors (ebangs--claim-number (seq-random-elt nums)))
-								(ebangs--delete-number (seq-random-elt nums)))))
+					 (let ((nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number)))))
+						 (dotimes (_ times)
+							 (ignore-errors (ebangs--claim-number (seq-random-elt nums)))
+							 (ebangs--delete-number (seq-random-elt nums)))))
 		(ebangs-update)))
 
 (let ((type-index 0) (table-index 1) (nums-index 2))
@@ -260,7 +266,7 @@ it on the end of the number."
  (lambda (beg)
 	 (let* ((id (ebangs-read-number))
 					(exp (ebangs-read-sexp))
-					(items (eval exp))
+					(items (eval exp t))
 					type (table (make-hash-table)))
 		 (unless (and (listp items) (car items))
 			 (error "Expected link expression to evaluate to list with a type, got:\n%S from \n%S" items exp))
@@ -331,7 +337,7 @@ Return a list of their instances."
 NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 	(let (indexed-insts
 				(old-table (or (gethash file ebangs--files) (make-hash-table)))
-				(old-numbers (copy-sequence ebangs--unclaimed-numbers)))
+				(old-numbers (copy-hash-table ebangs--unclaimed-numbers)))
 		(ebangs--ht-loop i _ old-table
 			do (ebangs--unindex-and-delete-nums i))
 		(unwind-protect
@@ -385,8 +391,8 @@ Or the string `missing file' if the file does not exist."
 					 (puthash file change-time ebangs--file-update-times))))
 	;; safe to delete numbers here as all buffers have been updated
 	;; any still unclaimed can be assumed not to be present
-	(mapc #'ebangs--delete-number ebangs--unclaimed-numbers)
-	(setf ebangs--unclaimed-numbers (list)))
+	(ebangs--ht-loop i _ ebangs--unclaimed-numbers do (ebangs--delete-number i))
+	(setf ebangs--unclaimed-numbers (make-hash-table)))
 
 (defun ebangs--activate ()
 	"Start tracking the current buffer for changes."
@@ -460,8 +466,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	"Get the instance with KEY set to VALUE, given key is uniquely indexed."
 	(let* ((it (gethash key ebangs--indexes))
 				 (unique (car it))
-				 (table (cdr it))
-				 val)
+				 (table (cdr it)))
 		(unless it (error "Key %S is not indexed" key))
 		(unless unique (error "Key %S is not unique" key))
 		(gethash value table)))
