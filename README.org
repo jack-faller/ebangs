@@ -1,0 +1,84 @@
+* What is it?
+Like the start of a bash file a bang is a short sequence of text proceeded by
+some more text. Ebangs lets you define these sequences then persistently stores
+all occurrences of them.
+** An example:
+#+begin_src emacs-lisp
+  ;; ~~# ! '(todo (text "some stuff"))
+#+end_src
+Here the bang is =~~#=, =!= is a base 94 ID that can be used to reference that specific bang.
+Finally an elisp form is at the end, it evaluates to a list whose car is the bang type and cdr is a list of additional properties.
+While =~~#= is a bang that comes included with Ebangs, you could easily make your own which takes other “arguments” for other reasons.
+#+begin_src emacs-lisp
+  (ebangs-select i => (ebangs-get 'text i) :from (file buffer-file-name)
+    (eq (ebangs-get 'type i) 'todo))
+#+end_src
+The above code will then give you back a list of all the todos in the current file.
+The default bang =~~#= also gave us other properties; you could ask for the line numbers or positions in the buffer by replacing ='text= with ='position= or ='line-number=.
+* Usage:
+Put ebangs.el in your load path then in your init.el:
+#+begin_src emacs-lisp
+  (require 'ebangs)
+  (ebangs-global-minor-mode)
+#+end_src
+Type out the bang (eg =~~#=), then M-x complete-bang. It will insert the body of the bang, and start watching the file or buffer for changes.
+The instanced bangs persist between sessions, and will always be up to date when they are queried.
+** Selection:
+All selections come down to the =ebangs-loop= macro.
+#+begin_src emacs-lisp
+  (ebangs-loop ACCUMULATOR VAR [=> COLLECTION-FORM]
+      [:from INDEX]
+      or [:from (INDEX VALUE)]
+      or [:from (INDEX VAR :where CONDITIONS...)]
+    BODY...)
+#+end_src
+- The parts in square brackets are optional.
+- It loops VAR over all of the bangs instance.
+- Only when all of the BODY forms return true is the value collected.
+- The => COLLECTION-FORM is for the value collected (or just VAR if none is supplied), using the common lisp loop accumulator ACCUMULATOR.
+- INDEX is a key from =ebangs-get=. Indexed keys are faster to lookup than regular ones, by default only ='file=, ='id=, and ='type= are indexed.
+The =ebangs-select= you saw earlier is just loop with =collect= passed as the accumulator.
+** Defining your own:
+The =~~#= bang is defined as follows:
+#+begin_src emacs-lisp
+  (ebangs-set-type
+   (concat "~~" "#") ; I use concat here to avoid getting errors when the definition is picked up as a bang.
+   (lambda (beg)
+     (let* ((id (ebangs-read-number))
+            (exp (ebangs-read-sexp))
+            (items (eval exp t))
+            type (table (make-hash-table)))
+       (unless (and (listp items) (car items))
+         (error "Expected link expression to evaluate to list with a type, got:\n%S from \n%S" items exp))
+       (setf type (car items))
+       (dolist (i (cdr items))
+         (puthash (car i) (cadr i) table))
+       (puthash 'id id table)
+       (puthash 'position beg table)
+       (puthash 'line-number (line-number-at-pos beg) table)
+       (ebangs-make-instance type table (list id)))))
+  (ebangs-set-completer
+   (concat "~~" "#")
+   (lambda (_)
+     (insert " " (int->base94 (ebangs-get-number)) " '()")
+     (cl-decf (point))))
+#+end_src
+The first defines a way to read a type of bang from the buffer, the second a way to complete it.
+* Other examples:
+Ebangs isn't just todos, you could define a bang for anything you need. You
+might start off just putting some properties in a default bang, then define a
+new bang and an entirely new set of functions to work with it.
+For instance you might:
+#+begin_src
+  ~~# a `(flashcard (front ,(ebangs-get-paragraph "front")) (back (ebangs-get-paragraph "back")))
+  Begin front:
+   some text for the front
+  End front. Begin back:
+   some back text
+  End back.
+#+end_src
+=ebangs-get-paragraph= is just a function which returns a string of the lines between the next Begin:/End. pair.
+Or use a new bang to link to others:
+#+begin_src
+  ~~> a "Look at my cool flashcard! (and this link to it)"
+#+end_src
