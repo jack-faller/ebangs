@@ -79,35 +79,29 @@ NUM should be an integer that should no longer be in use as an id, or in a file.
 							 (ebangs--delete-number (seq-random-elt nums)))))
 		(ebangs-update)))
 
-(let ((type-index 0) (table-index 1) (nums-index 2))
-	(defun ebangs-make-instance (type table &optional owned-numbers)
-		"Make a bang instance with TYPE and OWNED-NUMBERS.
+(defun ebangs-make-instance (type table &optional owned-numbers)
+	"Make a bang instance with TYPE and OWNED-NUMBERS.
 TABLE should be a hash table containing any extra keys and values for the
+TABLE is altered by this function.
 instance, these can then be gotten by `ebangs-get'."
-		(unless (cl-loop for i in owned-numbers
-										 always (numberp i))
-			(error "Owned numbers must be list of numbers got: %S" owned-numbers))
-		(vector type table owned-numbers))
-	(defun ebangs-get (name inst)
-		"Get a value from the key NAME from an instance INST.
+	(unless (cl-loop for i in owned-numbers
+									 always (numberp i))
+		(error "Owned numbers must be list of numbers got: %S" owned-numbers))
+	(puthash 'type type table)
+	(when owned-numbers (puthash 'owned-numbers owned-numbers table))
+	table)
+(defun ebangs-get (name inst)
+	"Get a value from the key NAME from an instance INST.
 This can also be used as a gv-setter."
-		(cond ((eq name 'type) (aref inst type-index))
-					((eq name 'table) (aref inst table-index))
-					((eq name 'owned-numbers) (aref inst nums-index))
-					(t (gethash name (aref inst table-index)))))
-	(defun ebangs-set (name val inst)
-		"Set the key NAME to VAL in the instance INST."
-		(cond ((eq name 'type) (setf (aref inst type-index) val))
-					((eq name 'table) (setf (aref inst table-index) val))
-					((eq name 'owned-numbers) (setf (aref inst nums-index) val))
-					(t (puthash name val (aref inst table-index)))))
-	(defun ebangs-copy-inst (inst)
-		"Return a new instance with the same keys and values as INST."
-		(let ((new (copy-sequence inst)))
-			(setf (aref inst table-index) (copy-hash-table (aref inst table-index)))
-			new))
-	(gv-define-setter ebangs-get (val name ebangs-inst)
-		`(ebangs-set ,name ,val ,ebangs-inst)))
+	(gethash name inst))
+(defun ebangs-set (name val inst)
+	"Set the key NAME to VAL in the instance INST."
+	(puthash name val inst))
+(defun ebangs-copy-inst (inst)
+	"Return a new instance with the same keys and values as INST."
+	(copy-hash-table inst))
+(gv-define-setter ebangs-get (val name inst)
+	`(puthash ,name ,val ,inst))
 (defmacro ebangs-from (var decls &rest body)
 	"Bind DECLS to the values of keys from VAR then evaluate BODY.
 DECLS should be list of (variable-name key) pairs."
@@ -130,12 +124,10 @@ TABLE should evaluate to a hash table."
 							,@body)))
 (defun ebangs-inst->list (inst)
 	"Convert an instance INST to a list of (key value) pairs."
-	(nconc (ebangs-from inst ((ty 'type) (nums 'owned-numbers)) `((type ,ty) (owned-numbers ,nums)))
-				 (ebangs--ht-loop var val (ebangs-get 'table inst)
-					 collect (list var val))))
+	(maphash #'list inst))
 (defun ebangs-inst-delete (key inst)
 	"Remove KEY from the instance INST.
-KEY should be a valid key to INST accessible by `ebangs-get' but can not be
+KEY should be a valid key to INST accessible by `ebangs-get' but should not be
 `owned-numbers', `table', or `type'."
 	(remhash key (ebangs-get 'table inst)))
 
