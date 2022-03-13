@@ -14,11 +14,12 @@
 									(setf num (/ num 94)))
 						 finally (return (apply #'string acc)))))
 
-(defvar-local ebangs--buffer-numbers (list))
+(defvar-local ebangs--unclaimed-numbers (list))
 (let (free-numbers (next 0))
 	(defun ebangs--claim-number (num)
 		(unless (numberp num)
 			(error "Expected num to ebangs--delete-number, got %S." num))
+		(setf ebangs--unclaimed-numbers (delete num ebangs--unclaimed-numbers))
 		(if (>= num next)
 				(prog1 num
 					(cl-loop for i from next below num
@@ -32,11 +33,12 @@
 		(let ((num (if (null free-numbers)
 									 (prog1 next (cl-incf next))
 								 (pop free-numbers))))
-			(push num ebangs--buffer-numbers)
+			(push num ebangs--unclaimed-numbers)
 			num))
 	(defun ebangs--delete-number (num)
 		(unless (numberp num)
 			(error "Expected num to ebangs--delete-number, got %S." num))
+		(setf ebangs--unclaimed-numbers (delete num ebangs--unclaimed-numbers))
 		(unless (memq num free-numbers) (push num free-numbers)))
 	(defun ebangs--get-number-data ()
 		(cons free-numbers next))
@@ -112,7 +114,7 @@
 		(when duplicates
 			(let ((to-unindex (ebangs-copy-inst inst)))
 				(dolist (i duplicates)
-					(remhash (car i) (ebags-get 'table inst)))
+					(remhash (car i) (ebangs-get 'table inst)))
 				(ebangs--unindex-inst to-unindex))
 			(error "Duplicate unique indices: %S" duplicates))))
 (defun ebangs--index-and-claim (inst)
@@ -132,7 +134,7 @@
 		else if value
 		do (let ((x (gethash value table)))
 				 (when x (remhash inst x)))))
-(defun ebangs--unindex-and-unclaim (inst)
+(defun ebangs--unindex-and-delete-nums (inst)
 	(ebangs--unindex-inst inst)
 	(mapc #'ebangs--delete-number (ebangs-get 'owned-numbers inst)))
 (defun ebangs--ht-remove-if (f table)
@@ -235,46 +237,40 @@ It should insert the body of the bang and may have any other side effects it wis
 				 finally (return out))))))
 
 (defun ebangs--set-insts (file new-table)
-	(let (indexed-insts (old-table (or (gethash file ebangs--files) (make-hash-table))))
+	(let (indexed-insts
+				(old-table (or (gethash file ebangs--files) (make-hash-table)))
+				(old-numbers (copy-sequence ebangs--unclaimed-numbers)))
 		(ebangs--ht-loop i _ old-table
-			do (ebangs--unindex-and-unclaim i))
+			do (ebangs--unindex-and-delete-nums i))
 		(unwind-protect
 				(ebangs--ht-loop i _ new-table
 					do (ebangs--index-and-claim i)
 					do (push i indexed-insts)
 					finally (setf indexed-insts nil
 												old-table nil))
-			(mapc #'ebangs--unindex-and-unclaim indexed-insts)
+			(mapc #'ebangs--unindex-and-delete-nums indexed-insts)
 			(when old-table
+				(setf ebangs--unclaimed-numbers old-numbers)
+				(dolist (i ebangs--unclaimed-numbers)
+					;; ensure all numbers are reset to their previous position
+					(ignore-errors (ebangs--claim-number i)))
 				(ebangs--ht-loop i _ old-table
 					do (ebangs--index-and-claim i))))
 		(puthash file new-table ebangs--files)))
-(defun ebangs--delete-buffer-numbers ()
-	(mapc #'ebangs--delete-number ebangs--buffer-numbers)
-	(setf ebangs--buffer-numbers (list)))
-(defun ebangs--add-buffer-numbers (list)
-	(dolist (i list)
-		(ebangs--claim-number i)
-		(push i ebangs--buffer-numbers)))
 
 (defun ebangs--update-file (&optional file buffer)
 	(setf file (or file buffer-file-name))
 	(setf buffer (or buffer (get-file-buffer file)
 									 (with-current-buffer (generate-new-buffer "*ebangs--temp-update*")
-										 (insert-file-contents file)
+										 (ignore-errors (insert-file-contents file))
 										 (current-buffer))))
 	(with-current-buffer buffer
-		(let ((old-numbers ebangs--buffer-numbers))
-			(ebangs--delete-buffer-numbers)
-			(condition-case err
-					(ebangs--set-insts file (ebangs--read-buffer-instances file))
-				(error
-				 (ebangs--delete-buffer-numbers)
-				 (ebangs--add-buffer-numbers old-numbers)
-				 (signal (car err) (cdr err)))))))
+		(ebangs--set-insts file (ebangs--read-buffer-instances file))))
 
 (defun ebangs--file-time (file)
-	(file-attribute-modification-time (file-attributes file)))
+	(or (file-attribute-modification-time (file-attributes file))
+			;; return this to trigger an update for deleted files
+			"missing file"))
 (defun ebangs--determine-last-change (file)
 	(let ((buf (get-file-buffer file)))
 		(if (and buf (buffer-modified-p buf))
@@ -286,13 +282,17 @@ It should insert the body of the bang and may have any other side effects it wis
 		do (let ((change-time (ebangs--determine-last-change file)))
 				 (unless (equal update-time change-time)
 					 (ebangs--update-file file)
-					 (puthash file change-time ebangs--file-update-times)))))
+					 (puthash file change-time ebangs--file-update-times))))
+	;; safe to delete numbers here as all buffers have been updated
+	;; any still unclaimed can be assumed not to be present
+	(mapc #'ebangs--delete-number ebangs--unclaimed-numbers)
+	(setf ebangs--unclaimed-numbers (list)))
 
 (defun ebangs--activate ()
 	(unless (or ebangs--buffer-active ebangs--buffer-inhibit)
 		(setf ebangs--buffer-active t)
 		(unless (gethash buffer-file-name ebangs--file-update-times)
-			(puthash buffer-file-name nil ebangs--file-update-times))
+			(puthash buffer-file-name "new buffer" ebangs--file-update-times))
 		(setf ebangs--buffer-last-change (current-time))
 		(add-hook 'after-change-functions (lambda (&rest _) (setf ebangs--buffer-last-change (current-time))))))
 (defvar ebangs--link-file (file-name-concat user-emacs-directory "ebangs-linkfile"))
@@ -311,7 +311,9 @@ It should insert the body of the bang and may have any other side effects it wis
 							(ebangs--ht-remove-if #'hash-table-empty-p ebangs--files)))
 	(add-hook 'kill-emacs-hook #'ebangs-serialize)
 	(setf ebangs--buffers-changed (cl-remove-if-not #'buffer-file-name (buffer-list)))
-	(ebangs-deserialize))
+	(ebangs-deserialize)
+	;; update here to deal with files that have changed since last reading
+	(ebangs-update))
 
 (defun ebangs-serialize ()
 	(with-temp-buffer
@@ -326,7 +328,8 @@ It should insert the body of the bang and may have any other side effects it wis
 	(with-temp-buffer
 		(if (file-exists-p ebangs--link-file)
 				(insert-file-contents ebangs--link-file)
-			(instert "()"))
+			(insert "()")
+			(prin1 (make-hash-table) (current-buffer)))
 		(let* ((insts (read (current-buffer)))
 					 (update-times (read (current-buffer))))
 			(setf ebangs--file-update-times update-times)
@@ -440,11 +443,10 @@ It should insert the body of the bang and may have any other side effects it wis
 							 (result (benchmark-run-compiled times (ebangs--update-file "ebangs--bench" (current-buffer)))))
 					(cons (/ (car result) times) result))
 			(ebangs--ht-loop inst _ (gethash "ebangs--bench" ebangs--files)
-				do (ebangs--unindex-and-unclaim inst))
-			(mapc #'ebangs--delete-number ebangs--buffer-numbers)
+				do (ebangs--unindex-inst inst))
+			(mapc #'ebangs--delete-number nums-copy)
 			(set-buffer-modified-p nil)
 			(kill-buffer))))
-;; ~~# ! '(todo (text "lol"))
 ;; (ebangs--bench 100 1000 30)
 ;; (progn (profiler-start 'cpu+mem)
 ;; 			  (ebangs--bench 10000 1000 30)
