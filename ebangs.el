@@ -1,12 +1,27 @@
-;; -*- lexical-binding: t -*-
+;;; ebangs.el --- Provides the command `ebangs-global-minor-mode'. -*- lexical-binding: t -*-
+
+;;; Commentary:
+
+;; Provides the command `ebangs-global-minor-mode'.  This mode allows bangs to
+;; be entered into files and then accessed at a later date.
+
+;;; Code:
 (require 'cl-lib)
 (require 'rx)
-(defun string->base94 (str)
+;;; code:
+(defun base94->int (str)
+	"Convert a string to an elisp number.
+STR should be the string of a base 94 integer (using the char range 33 to 126)
+to be converted to an elisp number."
   (cl-loop for i across str
 					 with acc = 0
 					 do (setf acc (+ (* acc 94) (- i 33)))
 					 finally (return acc)))
-(defun base94->string (num)
+
+(defun int->base94 (num)
+	"Convert an elisp number to a string.
+The reverse of `base94->int'.
+NUM should be an elisp integer."
   (if (= num 0) "!"
 		(cl-loop while (> num 0) with acc
 						 do (progn
@@ -15,30 +30,35 @@
 						 finally (return (apply #'string acc)))))
 
 (defvar-local ebangs--unclaimed-numbers (list))
+(defvar-local ebangs--buffer-inhibit nil)
 (let (free-numbers (next 0))
 	(defun ebangs--claim-number (num)
+		"Claim ownership of a NUM for use as an id.
+Through an error if NUM is already claimed."
 		(unless (numberp num)
-			(error "Expected num to ebangs--delete-number, got %S." num))
+			(error "Expected num to ebangs--delete-number, got %S" num))
 		(if (>= num next)
 				(prog1 num
 					(cl-loop for i from next below num
 									 do (push i free-numbers))
 					(setf next (+ num 1)))
-			(let ((elt (memq num free-numbers)))
-				(if (or (memq num free-numbers) (memq num ebangs--unclaimed-numbers))
-						(setf free-numbers (delq num free-numbers)
-									ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
-					(error "Number \"%s\" already claimed." (base94->string num))))))
+			(if (or (memq num free-numbers) (memq num ebangs--unclaimed-numbers))
+					(setf free-numbers (delq num free-numbers)
+								ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
+				(error "Number \"%s\" already claimed" (int->base94 num)))))
 	(defun ebangs-get-next-number ()
-		(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer."))
+		"Get a unique number for use as an id."
+		(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
 		(let ((num (if (null free-numbers)
 									 (prog1 next (cl-incf next))
 								 (pop free-numbers))))
 			(push num ebangs--unclaimed-numbers)
 			num))
 	(defun ebangs--delete-number (num)
+		"Free NUM, allowing it to be returned from `ebangs-get-next-number'
+NUM should be an integer that should no longer be in use as an id, or in a file."
 		(unless (numberp num)
-			(error "Expected num to ebangs--delete-number, got %S." num))
+			(error "Expected num to ebangs--delete-number, got %S" num))
 		(setf ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
 		(unless (memq num free-numbers) (push num free-numbers)))
 	(defun ebangs--get-number-data ()
@@ -49,58 +69,94 @@
 
 (let ((type-index 0) (table-index 1) (nums-index 2))
 	(defun ebangs-make-instance (type table &optional owned-numbers)
+		"Make a bang instance with TYPE and OWNED-NUMBERS.
+TABLE should be a hash table containing any extra keys and values for the
+instance, these can then be gotten by `ebangs-get'."
 		(unless (cl-loop for i in owned-numbers
 										 always (numberp i))
-			(error "Owned numbers must be list of numbers got: %S." owned-numbers))
+			(error "Owned numbers must be list of numbers got: %S" owned-numbers))
 		(vector type table owned-numbers))
-	(defun ebangs-get (name ebangs-inst)
-		(cond ((eq name 'type) (aref ebangs-inst type-index))
-					((eq name 'table) (aref ebangs-inst table-index))
-					((eq name 'owned-numbers) (aref ebangs-inst nums-index))
-					(t (gethash name (aref ebangs-inst table-index)))))
-	(defun ebangs-set (name val ebangs-inst)
-		(cond ((eq name 'type) (setf (aref ebangs-inst type-index) val))
-					((eq name 'table) (setf (aref ebangs-inst table-index) val))
-					((eq name 'owned-numbers) (setf (aref ebangs-inst nums-index) val))
-					(t (puthash name val (aref ebangs-inst table-index)))))
+	(defun ebangs-get (name inst)
+		"Get a value from the key NAME from an instance INST.
+This can also be used as a gv-setter."
+		(cond ((eq name 'type) (aref inst type-index))
+					((eq name 'table) (aref inst table-index))
+					((eq name 'owned-numbers) (aref inst nums-index))
+					(t (gethash name (aref inst table-index)))))
+	(defun ebangs-set (name val inst)
+		"Set the key NAME to VAL in the instance INST."
+		(cond ((eq name 'type) (setf (aref inst type-index) val))
+					((eq name 'table) (setf (aref inst table-index) val))
+					((eq name 'owned-numbers) (setf (aref inst nums-index) val))
+					(t (puthash name val (aref inst table-index)))))
 	(defun ebangs-copy-inst (inst)
+		"Return a new instance with the same keys and values as INST."
 		(let ((new (copy-sequence inst)))
 			(setf (aref inst table-index) (copy-hash-table (aref inst table-index)))
 			new))
 	(gv-define-setter ebangs-get (val name ebangs-inst)
 		`(ebangs-set ,name ,val ,ebangs-inst)))
-(defun ebangs-inst->list (inst)
-	(nconc (ebangs-from inst ((ty 'type) (nums 'owned-numbers)) `((type ,ty) (owned-numbers ,nums)))
-				 (ebangs--ht-loop var val (ebangs-get 'table inst)
-					 collect (list var val))))
-(defun ebangs-inst-delete (name ebangs-inst) (remhash name (ebangs-get 'table ebangs-inst)))
 (defmacro ebangs-from (var decls &rest body)
+	"Bind DECLS to the values of keys from VAR then evaluate BODY.
+DECLS should be list of (variable-name key) pairs."
 	(declare (indent 2))
 	(let* ((x (gensym))
 				 (let-list (mapcar (lambda (decl) (list (car decl) (list 'ebangs-get (cadr decl) x)))
 													 decls)))
 		`(let ((,x ,var))
 			 (let ,let-list ,@body))))
-
-(defvar-local ebangs--buffer-last-change nil)
-(defvar ebangs--file-update-times (make-hash-table :test 'equal))
-;; (map file-name (map ebangs-inst bool))
-(defvar ebangs--files (make-hash-table :test 'equal))
-;; (map key (unique (or ebangs-inst (map value (map ebangs-inst bool)))))
-(defvar ebangs--indexers (make-hash-table))
-(defun ebangs-index-on (key &optional unique test)
-	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexers))
-(ebangs-index-on 'type)
-(ebangs-index-on 'id t)
 (defmacro ebangs--ht-loop (k v table &rest body)
+	"Loop over the keys and values from TABLE, splice BODY into `cl-loop'.
+K and V should be variables to be bound destructureingly to keys and values.
+BODY should be composed of valid loop clauses (see `cl-loop').
+TABLE should evaluate to a hash table."
 	(declare (indent 3))
 	(let ((ksym (gensym)) (vsym (gensym)))
 		`(cl-loop for ,ksym being the hash-keys of ,table using (hash-values ,vsym)
 							for ,k = ,ksym
 							for ,v = ,vsym
 							,@body)))
+(defun ebangs-inst->list (inst)
+	"Convert an instance INST to a list of (key value) pairs."
+	(nconc (ebangs-from inst ((ty 'type) (nums 'owned-numbers)) `((type ,ty) (owned-numbers ,nums)))
+				 (ebangs--ht-loop var val (ebangs-get 'table inst)
+					 collect (list var val))))
+(defun ebangs-inst-delete (key inst)
+	"Remove KEY from the instance INST.
+KEY should be a valid key to INST accessible by `ebangs-get' but can not be
+`owned-numbers', `table', or `type'."
+	(remhash key (ebangs-get 'table inst)))
+
+(defvar-local ebangs--buffer-last-change nil
+	"The last time this buffer was changed.")
+(defvar ebangs--file-update-times (make-hash-table :test 'equal)
+	"A hash map from files to the last time their contents was read.")
+;; (map file-name (map ebangs-inst bool))
+(defvar ebangs--files (make-hash-table :test 'equal)
+	"A hash map from file-names to instance-tables.
+Where instance-table are maps from instances in a file to t.")
+;; (map key (unique (or ebangs-inst (map value (map ebangs-inst ool)))))
+(defvar ebangs--indexes (make-hash-table)
+	"A hash map from indexed keys to (UNIQUE . UNIQUE-TABLE or TABLE).
+Where:
+UNIQUE is a boolean specifying if this index is unique,
+UNIQUE-TABLE for unique indexes is a hash map from VALUE to instances with both
+that key and that value,
+TABLE for a non-unique indexes is a hash map from a value to a VALUE-TABLE,
+and VALUE-TABLEs are hash maps from an instance with the related key and value
+to t.")
+(defun ebangs-index-on (key &optional unique test)
+	"Index key in `ebangs--indexes'.
+When UNIQUE is non-nil, instances with KEY can not share values for KEY.
+TEST should be a valid hash map test used to determine the uniqueness of values
+of KEY (even if UNIQUE is nil); it is 'eql by default."
+	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexes))
+(ebangs-index-on 'type)
+(ebangs-index-on 'id t)
 (defun ebangs--index-inst (inst)
-	(ebangs--ht-loop key (unique . table) ebangs--indexers
+	"Enter the keys from INST into `ebangs--indexes'.
+Through an error if unique keys are shared."
+	(ebangs--ht-loop key (unique . table) ebangs--indexes
 		with duplicates = (list)
 		for value = (ebangs-get key inst)
 		if (and unique value)
@@ -111,7 +167,7 @@
 		do (puthash inst t
 								(or (gethash value table)
 										(puthash value (make-hash-table) table)))
-		finally 
+		finally
 		(when duplicates
 			(let ((to-unindex (ebangs-copy-inst inst)))
 				(dolist (i duplicates)
@@ -119,6 +175,7 @@
 				(ebangs--unindex-inst to-unindex))
 			(error "Duplicate unique indices: %S" duplicates))))
 (defun ebangs--index-and-claim (inst)
+	"Do `ebangs--index-inst' and claim the owned-numbers from INST."
 	(ebangs--index-inst inst)
 	(let (claimed)
 		(unwind-protect
@@ -128,7 +185,8 @@
 								 finally (setf claimed nil))
 			(mapc #'ebangs--delete-number claimed))))
 (defun ebangs--unindex-inst (inst)
-	(ebangs--ht-loop key (unique . table) ebangs--indexers
+	"Remove INST from `ebangs--indexes'."
+	(ebangs--ht-loop key (unique . table) ebangs--indexes
 		for value = (ebangs-get key inst)
 		if (and unique value)
 		do (remhash value table)
@@ -136,37 +194,54 @@
 		do (let ((x (gethash value table)))
 				 (when x (remhash inst x)))))
 (defun ebangs--unindex-and-delete-nums (inst)
+	"Do `ebangs--unindex-inst' and delete INST's owned numbers."
 	(ebangs--unindex-inst inst)
 	(mapc #'ebangs--delete-number (ebangs-get 'owned-numbers inst)))
 (defun ebangs--ht-remove-if (f table)
+	"Call remhash on keys from the hash table TABLE that satisfy the predicate F."
 	(ebangs--ht-loop key value table if (funcall f value) do (remhash key table)))
 
-(defvar ebangs-types (make-hash-table :test 'equal))
-(defvar ebangs-bangs (list))
+(defvar ebangs-types (make-hash-table :test 'equal)
+	"A hash map from the string of bangs to instancing functions.")
+(defvar ebangs-bangs-list (list)
+	"A list of bangs which appear in `ebangs-types'.")
 (defun ebangs-set-type (bang instance-fn)
-	"If INSTANCE-FN is nil, remove this type.
-Otherwise INSTANCE-FN is called with the point on the end of a bang and with its start as the argument.
-It returns an ebangs instance and leaves the point on the end of the bang's body. "
+	"Set the instance function to the string BANG.
+If INSTANCE-FN is nil, remove BANG's function.
+Otherwise INSTANCE-FN is called with the point on the end of a bang and with its
+start as the argument.
+It returns an ebangs instance and leaves the point on the end of the bang's
+body."
 	(if instance-fn
 			(progn
-				(unless (member bang ebangs-bangs) (push bang ebangs-bangs))
+				(unless (member bang ebangs-bangs-list) (push bang ebangs-bangs-list))
 				(puthash bang instance-fn ebangs-types))
-		(setf ebangs (remove bang ebangs-bangs))
+		(setf ebangs-bangs-list (remove bang ebangs-bangs-list))
 		(remhash bang ebangs-types)))
 (defun ebangs--instance (beg)
+	"Instance a bang by calling its instance function.
+This should be called with the point on the end of the bang and with BEG as the
+start of it.
+\(buffer-substring beg (+ (point) 1)) should yeild the string of the bang."
 	(let ((bang (buffer-substring-no-properties beg (+ (point) 1))))
 		(funcall (gethash bang ebangs-types) beg)))
 
 (defun ebangs-read-number ()
+	"For use in an instance function, read a base 94 number and return it.
+This should be called with the point on the end of the last item and will leave
+it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space) (group (+? any)) (or eol (+ space))))
-		(error "Malformed bang, expected number got: \n\"%s\"." (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Malformed bang, expected number got: \n\"%s\"" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (- (match-end 1) 1))
-	(string->base94 (match-string 1)))
+	(base94->int (match-string 1)))
 (defun ebangs-read-sexp ()
+	"For use in an instance function, read one sexp number and return it.
+This should be called with the point on the end of the last item and will leave
+it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space)))
-		(error "Malformed bang, expected space got: \n\"%s\"." (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Malformed bang, expected space got: \n\"%s\"" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (match-end 0))
 	(let* ((beg (point))
 				 (end (progn (forward-sexp)
@@ -190,47 +265,54 @@ It returns an ebangs instance and leaves the point on the end of the bang's body
 		 (puthash 'line-number (line-number-at-pos beg) table)
 		 (ebangs-make-instance type table (list id)))))
 
-(defvar ebangs-completers (make-hash-table :test 'equal))
-(defvar ebangs-completers-list (list))
+(defvar ebangs-completers (make-hash-table :test 'equal)
+	"A hash map from bangs to functions that complete them as in `ebangs-complete'.")
+(defvar ebangs-completers-list (list)
+	"A list of bangs with completers.")
 (defun ebangs-set-completer (bang complete-fn)
-	"If COMPLETE-FN is nil, remove this completer.
-Otherwise COMPLETE-FN is called with the point on the end of a bang and with its start as the argument.
-It should insert the body of the bang and may have any other side effects it wishes."
+	"Set the completer for BANG to COMPLETE-FN for use in `ebangs-complete'.
+If COMPLETE-FN is nil, remove BANG's completer.
+Otherwise COMPLETE-FN is called with the point on the end of a bang and with its
+start as the argument.
+It should insert the body of the bang and may have any other side effects it
+wishes."
 	(if complete-fn
 			(progn
 				(unless (member bang ebangs-completers-list) (push bang ebangs-completers-list))
 				(puthash bang complete-fn ebangs-completers))
-		(setf ebangs (remove bang ebangs-completers-list))
+		(setf ebangs-completers-list (remove bang ebangs-completers-list))
 		(remhash bang ebangs-completers)))
 
 (defun ebangs-complete ()
+	"Complete the body of the bang preceding the point.
+This is the only valid way to enter a new bang."
 	(interactive)
-	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer."))
+	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
 	(unless (looking-back (regexp-opt ebangs-completers-list) nil t)
-		(error "Nothing to complete."))
+		(error "Nothing to complete here"))
 	(funcall (gethash (match-string 0) ebangs-completers) (match-beginning 0))
 	(ebangs--activate))
 
 (ebangs-set-completer
  (concat "~~" "#")
- (lambda (start)
-	 (insert " " (base94->string (ebangs-get-next-number)) " '()")
+ (lambda (_)
+	 (insert " " (int->base94 (ebangs-get-next-number)) " '()")
 	 (cl-decf (point))))
 
-(defvar-local ebangs--buffer-inhibit nil)
-(defvar-local ebangs--buffer-active nil)
-(defvar ebangs--buffers-changed (list))
+(defvar-local ebangs--buffer-active nil
+	"Non nil once a bang has been put in a buffer.")
 
 (defun ebangs--read-buffer-instances (file)
+	"Read all bangs from the current buffer, setting their file to FILE.
+Return a list of their instances."
 	(save-excursion
 		(goto-char (point-min))
 		(save-match-data
-			(let ((rx (regexp-opt ebangs-bangs)))
+			(let ((rx (regexp-opt ebangs-bangs-list)))
 				(cl-loop
 				 with out = (make-hash-table)
 				 while (re-search-forward rx nil t)
 				 for beg = (match-beginning 0)
-				 for bang = (match-string-no-properties 0)
 				 do (cl-decf (point))
 				 for inst = (ebangs--instance beg)
 				 do (setf (ebangs-get 'file inst) file)
@@ -238,6 +320,8 @@ It should insert the body of the bang and may have any other side effects it wis
 				 finally (return out))))))
 
 (defun ebangs--set-insts (file new-table)
+	"Atomically set the instances in FILE to the ones in NEW-TABLE.
+NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 	(let (indexed-insts
 				(old-table (or (gethash file ebangs--files) (make-hash-table)))
 				(old-numbers (copy-sequence ebangs--unclaimed-numbers)))
@@ -260,6 +344,10 @@ It should insert the body of the bang and may have any other side effects it wis
 		(puthash file new-table ebangs--files)))
 
 (defun ebangs--update-file (&optional file buffer)
+	"Update the instances from FILE.
+If FILE is not given the current buffer is assumed.
+If BUFFER isn't given, it will first look for open buffers for FILE, if none
+exist it will create create a temporary one and read FILE into it."
 	(setf file (or file buffer-file-name))
 	(if (setf buffer (or buffer (get-file-buffer file)))
 			(with-current-buffer buffer
@@ -269,16 +357,20 @@ It should insert the body of the bang and may have any other side effects it wis
 			(ebangs--set-insts file (ebangs--read-buffer-instances file)))))
 
 (defun ebangs--file-time (file)
+	"Return the most recent modification of FILE in the file system.
+Or the string `missing file' if the file does not exist."
 	(or (file-attribute-modification-time (file-attributes file))
 			;; return this to trigger an update for deleted files
 			"missing file"))
 (defun ebangs--determine-last-change (file)
+	"Figure out the last time FILE was changed by the user."
 	(let ((buf (get-file-buffer file)))
 		(if (and buf (buffer-modified-p buf))
 				(buffer-local-value 'ebangs--buffer-last-change buf)
 			(ebangs--file-time file))))
 
 (defun ebangs-update ()
+	"Update any changed files by reading their instances."
 	(ebangs--ht-loop file update-time ebangs--file-update-times
 		do (let ((change-time (ebangs--determine-last-change file)))
 				 (unless (equal update-time change-time)
@@ -290,15 +382,20 @@ It should insert the body of the bang and may have any other side effects it wis
 	(setf ebangs--unclaimed-numbers (list)))
 
 (defun ebangs--activate ()
+	"Start tracking the current buffer for changes."
 	(unless (or ebangs--buffer-active ebangs--buffer-inhibit)
 		(setf ebangs--buffer-active t)
 		(unless (gethash buffer-file-name ebangs--file-update-times)
 			(puthash buffer-file-name "new buffer" ebangs--file-update-times))
 		(setf ebangs--buffer-last-change (current-time))
 		(add-hook 'after-change-functions (lambda (&rest _) (setf ebangs--buffer-last-change (current-time))))))
-(defvar ebangs--link-file (file-name-concat user-emacs-directory "ebangs-linkfile"))
+
+(defvar ebangs-link-file (file-name-concat user-emacs-directory "ebangs-linkfile")
+	"The file links are saved to.
+This should be set before `ebangs-global-minor-mode' is called.")
 
 (defun ebangs--file-setup ()
+	"Called on instancing a buffer to determine how ebangs should track it."
 	(if (not buffer-file-name) (setf ebangs--buffer-inhibit t)
 		(when (gethash buffer-file-name ebangs--files)
 			(ebangs--activate))))
@@ -307,28 +404,28 @@ It should insert the body of the bang and may have any other side effects it wis
 (define-global-minor-mode ebangs-global-minor-mode ebangs-mode ebangs--file-setup
 	(add-hook 'post-gc-hook
 						(lambda ()
-							(ebangs--ht-loop _ (unique . table) ebangs--indexers
+							(ebangs--ht-loop _ (unique . table) ebangs--indexes
 								unless unique do (ebangs--ht-remove-if #'hash-table-empty-p table))
 							(ebangs--ht-remove-if #'hash-table-empty-p ebangs--files)))
 	(add-hook 'kill-emacs-hook #'ebangs-serialize)
-	(setf ebangs--buffers-changed (cl-remove-if-not #'buffer-file-name (buffer-list)))
 	(ebangs-deserialize)
 	;; update here to deal with files that have changed since last reading
 	(ebangs-update))
 
 (defun ebangs-serialize ()
+	"Save all instances and metadata to `ebangs-link-file'."
 	(with-temp-buffer
 		(prin1
-		 (ebangs--ht-loop
-				 file table ebangs--files
+		 (ebangs--ht-loop _ table ebangs--files
 			 nconc (ebangs--ht-loop i _ table collect i))
 		 (current-buffer))
 		(prin1 ebangs--file-update-times (current-buffer))
-		(write-region nil nil ebangs--link-file)))
+		(write-region nil nil ebangs-link-file)))
 (defun ebangs-deserialize ()
+	"Load instances and metadata from `ebangs-link-file'."
 	(with-temp-buffer
-		(if (file-exists-p ebangs--link-file)
-				(insert-file-contents ebangs--link-file)
+		(if (file-exists-p ebangs-link-file)
+				(insert-file-contents ebangs-link-file)
 			(insert "()")
 			(prin1 (make-hash-table) (current-buffer)))
 		(let* ((insts (read (current-buffer)))
@@ -339,9 +436,8 @@ It should insert the body of the bang and may have any other side effects it wis
 			(dolist (i insts)
 				(mapc #'ebangs--claim-number (ebangs-get 'owned-numbers i))
 				(ebangs-add-inst (ebangs-get 'file i) i)))))
-;; TODO make this go from the last Begin to make the change overlay line up better
-;; otherwise inserting a Begin before a block would mean no change is triggered, but if one happened it would bring the block backward
 (defun ebangs-get-paragraph (name)
+	"Get the string between the next lines with `Begin NAME:' and `End NAME.'."
 	(save-match-data
 		(save-excursion
 			(let* ((text-beg (progn
@@ -353,13 +449,13 @@ It should insert the body of the bang and may have any other side effects it wis
 				(buffer-substring-no-properties text-beg text-end)))))
 
 (defun ebangs-get-inst (key value)
-	"Get the instance with key as value, given key is uniquely indexed."
-	(let* ((it (gethash key ebangs--indexers))
+	"Get the instance with KEY set to VALUE, given key is uniquely indexed."
+	(let* ((it (gethash key ebangs--indexes))
 				 (unique (car it))
 				 (table (cdr it))
 				 val)
-		(unless it (error "Key %S is not indexed." key))
-		(unless unique (error "Key %S is not unique." key))
+		(unless it (error "Key %S is not indexed" key))
+		(unless unique (error "Key %S is not unique" key))
 		(gethash value table)))
 
 (defmacro ebangs-loop (loop-keyword var &rest body)
@@ -376,58 +472,57 @@ It should insert the body of the bang and may have any other side effects it wis
 				 (from-key (car from))
 				 (from-value (cadr from))
 				 (cond (cons 'and body))
-				 (_ (gensym "_"))
 				 (table (gensym "table"))
 				 (value-table (gensym "value-table")))
-		(unless (symbolp var) (error "VAR should be a symbol."))
+		(unless (symbolp var) (error "VAR should be a symbol"))
 		`(progn
 			 (ebangs-update)
 			 ,(cond
 				 ((and (eq from-key 'file) from-value)
 					`(let ((,table (gethash ,from-value ebangs--files)))
 						 (when ,table
-							 (ebangs--ht-loop ,var ,_ ,table
+							 (ebangs--ht-loop ,var ,(gensym "_") ,table
 								 if ,cond ,loop-keyword ,collection-form))))
 				 ((eq from-key 'file) `(ebangs-select ,var => ,collection-form ,@body))
 				 ((and from-key from-value)
-					`(let ((,table (gethash ',from-key ebangs--indexers))
+					`(let ((,table (gethash ',from-key ebangs--indexes))
 								 ,value-table)
-						 (unless ,table (error "Key %S not indexed." ',from-key))
-						 (when (car ,table) (error "Can not select value from unique key: %S." ',from-key))
+						 (unless ,table (error "Key %S not indexed" ',from-key))
+						 (when (car ,table) (error "Can not select value from unique key: %S" ',from-key))
 						 (setf ,value-table (gethash ,from-value (cdr ,table)))
 						 (when ,value-table
-							 (ebangs--ht-loop ,var ,_ ,value-table
+							 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
 								 if ,cond ,loop-keyword ,collection-form))))
 				 (from-key
-					`(let ((,table (gethash ',from-key ebangs--indexers)))
-						 (unless ,table (error "Key %S not indexed." ',from-key))
-						 (if (car ,table) (ebangs--ht-loop ,_ ,var (cdr ,table)
+					`(let ((,table (gethash ',from-key ebangs--indexes)))
+						 (unless ,table (error "Key %S not indexed" ',from-key))
+						 (if (car ,table) (ebangs--ht-loop ,(gensym "_") ,var (cdr ,table)
 																if ,cond ,loop-keyword ,collection-form)
-							 (ebangs--ht-loop ,_ ,value-table (cdr ,table)
-								 nconc (ebangs--ht-loop ,var ,_ ,value-table
+							 (ebangs--ht-loop ,(gensym "_") ,value-table (cdr ,table)
+								 nconc (ebangs--ht-loop ,var ,(gensym "_") ,value-table
 												 if ,cond ,loop-keyword ,collection-form)))))
 				 (t
-					`(ebangs--ht-loop ,_ ,value-table ebangs--files
-						 nconc (ebangs--ht-loop ,var ,_ ,value-table
+					`(ebangs--ht-loop ,(gensym "_") ,value-table ebangs--files
+						 nconc (ebangs--ht-loop ,var ,(gensym "_") ,value-table
 										 if ,cond ,loop-keyword ,collection-form)))))))
-(defmacro ebangs-select (var &rest body) (declare (indent defun)) `(ebangs-loop collect ,var ,@body))
-(defmacro ebangs-foreach (var &rest body) (declare (indent defun)) `(ebangs-loop do ,var ,@body))
+(defmacro ebangs-select (var &rest body)
+	"`ebangs-loop' with the keyword collect."
+	(declare (indent defun))
+	`(ebangs-loop collect ,var ,@body))
+(defmacro ebangs-foreach (var &rest body)
+	"`ebangs-loop' with the keyword do."
+	(declare (indent defun))
+	`(ebangs-loop do ,var ,@body))
 
 (defun ebangs-inspect ()
+	"Show a buffer with all instances."
 	(interactive)
 	(let ((buf (generate-new-buffer "*ebangs-inspector*")))
 		(switch-to-buffer buf)
 		(ebangs-foreach i => (progn (prin1 (ebangs-inst->list i) buf) (newline)))))
 
-(defun ebangs--test ()
-	(ebangs-select i => (ebangs-get 'id i)
-		:from id)
-	(ebangs-select i :from (type 'todo) (= 1 (ebangs-get 'test i)))
-	(ebangs-select i :from id (eq 1 (ebangs-get 'test i)))
-	(ebangs-select i (eq 1 (ebangs-get 'test i)))
-	)
-
 (defun ebangs--bench (times lines count)
+	"Benchmark updating a file with LINES line and COUNT bangs TIMES times."
 	(with-temp-buffer
 		(let* ((repeat-every (/ lines count))
 					 (count (/ lines repeat-every))
@@ -439,7 +534,7 @@ It should insert the body of the bang and may have any other side effects it wis
 											 (insert "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj")
 										 (let ((num (seq-random-elt nums)))
 											 (setf nums (delete num nums))
-											 (insert "~" "~# " (base94->string num) " '(todo (text \"test\"))")))
+											 (insert "~" "~# " (int->base94 num) " '(todo (text \"test\"))")))
 									 (newline))
 								 (let ((result (benchmark-run-compiled times (ebangs--update-file "ebangs--bench" (current-buffer)))))
 									 (cons (/ (car result) times) result)))
@@ -470,3 +565,5 @@ It should insert the body of the bang and may have any other side effects it wis
 	  (find-file (car result))
 	  (goto-char (cdr result))))
 
+(provide 'ebangs)
+;;; ebangs.el ends here
