@@ -144,9 +144,6 @@ KEY should be a valid key to INST accessible by `ebangs-get' but can not be
 (defvar ebangs--file-update-times (make-hash-table :test 'equal)
 	"A hash map from files to the last time their contents was read.")
 ;; (map file-name (map ebangs-inst bool))
-(defvar ebangs--files (make-hash-table :test 'equal)
-	"A hash map from file-names to instance-tables.
-Where instance-table are maps from instances in a file to t.")
 ;; (map key (unique (or ebangs-inst (map value (map ebangs-inst ool)))))
 (defvar ebangs--indexes (make-hash-table)
 	"A hash map from indexed keys to (UNIQUE . UNIQUE-TABLE or TABLE).
@@ -166,6 +163,10 @@ Records whose value for KEY is nil will not be indexed."
 	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexes))
 (ebangs-index-on 'type)
 (ebangs-index-on 'id t)
+(ebangs-index-on 'file 'equal)
+(defvar ebangs--files (gethash 'file ebangs--indexes)
+	"A hash map from file-names to instance-tables.
+Where instance-table are maps from instances in a file to t.")
 (defun ebangs--index-inst (inst)
 	"Enter the keys from INST into `ebangs--indexes'.
 Through an error if unique keys are shared."
@@ -353,8 +354,7 @@ NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 					;; ensure all numbers are reset to their previous position
 					(ignore-errors (ebangs--claim-number i)))
 				(ebangs--ht-loop i _ old-table
-					do (ebangs--index-and-claim i))))
-		(puthash file new-table ebangs--files)))
+					do (ebangs--index-and-claim i))))))
 
 (defun ebangs--update-file (&optional file buffer)
 	"Update the instances from FILE.
@@ -418,8 +418,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	(add-hook 'post-gc-hook
 						(lambda ()
 							(ebangs--ht-loop _ (unique . table) ebangs--indexes
-								unless unique do (ebangs--ht-remove-if #'hash-table-empty-p table))
-							(ebangs--ht-remove-if #'hash-table-empty-p ebangs--files)))
+								unless unique do (ebangs--ht-remove-if #'hash-table-empty-p table))))
 	(add-hook 'kill-emacs-hook #'ebangs-serialize)
 	(ebangs-deserialize)
 	;; update here to deal with files that have changed since last reading
@@ -448,8 +447,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 			(kill-region (point-min) (point-max))
 			(message "%S" insts)
 			(dolist (i insts)
-				(ebangs--index-and-claim i)
-				(puthash i t (gethash (ebangs-get 'file i) ebangs--files))))))
+				(ebangs--index-and-claim i)))))
 (defun ebangs-get-paragraph (name)
 	"Get the string between the next lines with `Begin NAME:' and `End NAME.'."
 	(save-match-data
@@ -471,18 +469,20 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		(unless unique (error "Key %S is not unique" key))
 		(gethash value table)))
 
+;; potentially bad behaviour from nested selects / modifying values inside a select, oh well.
 (defmacro ebangs-loop (accumulator var &rest body)
 	"Iterate over and collect matching instances.
 \(ebangs-loop ACCUMULATOR VAR [=> COLLECTION-FORM]
-    [:from INDEX] or [:from (INDEX VALUE)]
-  BODY)
+    [:from INDEX]
+    or [:from (INDEX VALUE)]
+    or [:from (INDEX VAR :where CONDITIONS...)]
+  BODY...)
 Loop with VAR bound to all bang instances, or just those with the key INDEX, set
 to the value VALUE if those are provided and INDEX is an indexed key.
 If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 `cl-loop' accumulator ACCUMULATOR."
 	(declare (indent defun))
-	(let* (;; the accumulation form to use if loops must be nested
-				 (secondary-accumulator (if (eq accumulator 'collect) 'nconc accumulator))
+	(let* ((outer-accumulator (if (eq accumulator 'collect) 'nconc accumulator))
 				 (collection-form
 					(if (eq '=> (car body))
 							(prog1 (nth 1 body)
@@ -494,42 +494,50 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 									 (if (listp from-arg) from-arg (list from-arg)))))
 				 (from-key (car from))
 				 (from-value (cadr from))
+				 (from-condition
+					(cond ((null (caddr from)) nil)
+								((eq :where (caddr from)) (cons 'and (cdddr from)))
+								(t (error "Expected where in from conditions"))))
 				 (cond (cons 'and body))
-				 (table (gensym "table"))
-				 (value-table (gensym "value-table")))
+				 (outer-table (gensym "outer-table"))
+				 (inner-table (gensym "inner-table"))
+				 (inner-loop (lambda (keys/values)
+											 `(cl-loop for ,var being the ,keys/values of ,inner-table
+																 if ,cond ,accumulator ,collection-form))))
 		(unless (symbolp var) (error "VAR should be a symbol"))
 		`(progn
 			 (ebangs-update)
 			 ,(cond
-				 ((and (eq from-key 'file) from-value)
-					`(let ((,table (gethash ,from-value ebangs--files)))
-						 (when ,table
-							 (ebangs--ht-loop ,var ,(gensym "_") ,table
-								 if ,cond ,accumulator ,collection-form))))
-				 ((eq from-key 'file) `(ebangs-select ,var => ,collection-form ,@body))
+				 ((and from-key from-condition)
+					`(let ((,outer-table (gethash ',from-key ebangs--indexes)))
+						 (unless ,outer-table (error "Key %S not indexed" ',from-key))
+						 (if (car ,outer-table)
+								 (ebangs--ht-loop ,from-value ,var (cdr ,outer-table)
+									 if ,from-condition if ,cond ,accumulator ,collection-form)
+							 (ebangs--ht-loop ,from-value ,inner-table (cdr ,outer-table)
+									 if ,from-condition
+									 ,outer-accumulator ,(funcall inner-loop 'hash-keys)))))
 				 ((and from-key from-value)
-					`(let ((,table (gethash ',from-key ebangs--indexes))
-								 ,value-table)
-						 (unless ,table (error "Key %S not indexed" ',from-key))
-						 (when (car ,table) (error "Can not select value from unique key: %S" ',from-key))
-						 (setf ,value-table (gethash ,from-value (cdr ,table)))
-						 (when ,value-table
-							 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-								 if ,cond ,accumulator ,collection-form))))
+					`(let ((,outer-table (gethash ',from-key ebangs--indexes))
+								 ,inner-table)
+						 (unless ,outer-table (error "Key %S not indexed" ',from-key))
+						 (if (car ,outer-table)
+								 (cl-loop repeat 1 with ,var
+													while (setf ,var (gethash ,from-value (cdr ,outer-table)))
+													,accumulator ,collection-form)
+							 (setf ,inner-table (gethash ,from-value (cdr ,outer-table)))
+							 (when ,inner-table ,(funcall inner-loop 'hash-keys)))))
 				 (from-key
-					`(let ((,table (gethash ',from-key ebangs--indexes)))
-						 (unless ,table (error "Key %S not indexed" ',from-key))
-						 (if (car ,table) (ebangs--ht-loop ,(gensym "_") ,var (cdr ,table)
-																if ,cond ,accumulator ,collection-form)
-							 (ebangs--ht-loop ,(gensym "_") ,value-table (cdr ,table)
-								 ,secondary-accumulator
-								 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-									 if ,cond ,accumulator ,collection-form)))))
+					`(let ((,outer-table (gethash ',from-key ebangs--indexes)))
+						 (unless ,outer-table (error "Key %S not indexed" ',from-key))
+						 (if (car ,outer-table)
+								 (let ((,inner-table (cdr ,outer-table)))
+									 ,(funcall inner-loop 'hash-values))
+							 (cl-loop for ,inner-table being the hash-values of (cdr ,outer-table)
+												,outer-accumulator ,(funcall inner-loop 'hash-keys)))))
 				 (t
-					`(ebangs--ht-loop ,(gensym "_") ,value-table ebangs--files
-						 ,secondary-accumulator
-						 (ebangs--ht-loop ,var ,(gensym "_") ,value-table
-							 if ,cond ,accumulator ,collection-form)))))))
+					`(cl-loop for ,inner-table being the hash-values of ebangs--files
+										,outer-accumulator ,(funcall inner-loop 'hash-keys)))))))
 (defmacro ebangs-select (var &rest body)
 	"`ebangs-loop' with the keyword collect."
 	(declare (indent defun))
@@ -563,7 +571,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 									 (newline))
 								 (let ((result (benchmark-run-compiled times (ebangs--update-file "ebangs--bench" (current-buffer)))))
 									 (cons (/ (car result) times) result)))
-				(ebangs--ht-loop inst _ (gethash "ebangs--bench" ebangs--files)
+				(ebangs--ht-loop inst _ (copy-hash-table (gethash "ebangs--bench" ebangs--files))
 					do (ebangs--unindex-inst inst))
 				(mapc #'ebangs--delete-number nums-copy)))))
 ;; (ebangs--bench 100 1000 30)
