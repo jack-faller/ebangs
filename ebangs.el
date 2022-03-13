@@ -163,8 +163,8 @@ Records whose value for KEY is nil will not be indexed."
 	(puthash key (cons unique (make-hash-table :test (or test 'eql))) ebangs--indexes))
 (ebangs-index-on 'type)
 (ebangs-index-on 'id t)
-(ebangs-index-on 'file 'equal)
-(defvar ebangs--files (gethash 'file ebangs--indexes)
+(ebangs-index-on 'file nil 'equal)
+(defvar ebangs--files (cdr (gethash 'file ebangs--indexes))
 	"A hash map from file-names to instance-tables.
 Where instance-table are maps from instances in a file to t.")
 (defun ebangs--index-inst (inst)
