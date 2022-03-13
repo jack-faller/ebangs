@@ -418,6 +418,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 
 (defun ebangs-serialize ()
 	"Save all instances and metadata to `ebangs-link-file'."
+	(ebangs-update)
 	(with-temp-buffer
 		(prin1
 		 (ebangs--ht-loop _ table ebangs--files
