@@ -29,43 +29,49 @@ NUM should be an elisp integer."
 									(setf num (/ num 94)))
 						 finally (return (apply #'string acc)))))
 
-(defvar-local ebangs--unclaimed-numbers (list))
 (defvar-local ebangs--buffer-inhibit nil)
-(let (free-numbers (next 0))
-	(defun ebangs--claim-number (num)
-		"Claim ownership of a NUM for use as an id.
+(defvar ebangs--unclaimed-numbers (list))
+(defvar ebangs--next-free-number 0)
+(defvar ebangs--free-numbers (list)
+	"Free numbers below `ebangs--next-free-number'.")
+(defun ebangs--claim-number (num)
+	"Claim ownership of a NUM for use as an id.
 Through an error if NUM is already claimed."
-		(unless (numberp num)
-			(error "Expected num to ebangs--delete-number, got %S" num))
-		(if (>= num next)
-				(prog1 num
-					(cl-loop for i from next below num
-									 do (push i free-numbers))
-					(setf next (+ num 1)))
-			(if (or (memq num free-numbers) (memq num ebangs--unclaimed-numbers))
-					(setf free-numbers (delq num free-numbers)
-								ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
-				(error "Number \"%s\" already claimed" (int->base94 num)))))
-	(defun ebangs-get-next-number ()
-		"Get a unique number for use as an id."
-		(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
-		(let ((num (if (null free-numbers)
-									 (prog1 next (cl-incf next))
-								 (pop free-numbers))))
-			(push num ebangs--unclaimed-numbers)
-			num))
-	(defun ebangs--delete-number (num)
-		"Free NUM, allowing it to be returned from `ebangs-get-next-number'
+	(unless (numberp num)
+		(error "Expected num to ebangs--delete-number, got %S" num))
+	(if (>= num ebangs--next-free-number)
+			(prog1 num
+				(cl-loop for i from ebangs--next-free-number below num
+								 do (push i ebangs--free-numbers))
+				(setf ebangs--next-free-number (+ num 1)))
+		(if (or (memq num ebangs--free-numbers) (memq num ebangs--unclaimed-numbers))
+				(setf ebangs--free-numbers (delq num ebangs--free-numbers)
+							ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
+			(error "Number \"%s\" already claimed" (int->base94 num)))))
+(defun ebangs-get-number ()
+	"Get a unique number for use as an id."
+	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
+	(let ((num (if (null ebangs--free-numbers)
+								 (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number))
+							 (pop ebangs--free-numbers))))
+		(push num ebangs--unclaimed-numbers)
+		num))
+(defun ebangs--delete-number (num)
+	"Free NUM, allowing it to be returned from `ebangs-get-number'.
 NUM should be an integer that should no longer be in use as an id, or in a file."
-		(unless (numberp num)
-			(error "Expected num to ebangs--delete-number, got %S" num))
-		(setf ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
-		(unless (memq num free-numbers) (push num free-numbers)))
-	(defun ebangs--get-number-data ()
-		(cons free-numbers next))
-	(defun ebangs--set-number-data (d)
-		(setf free-numbers (car d))
-		(setf next (cdr d))))
+	(unless (numberp num)
+		(error "Expected num to ebangs--delete-number, got %S" num))
+	(setf ebangs--unclaimed-numbers (delq num ebangs--unclaimed-numbers))
+	(unless (memq num ebangs--free-numbers) (push num ebangs--free-numbers)))
+
+(defun ebangs--number-bench (times count)
+	"Get COUNT numbers are delete/claim random ones TIMES times."
+	(prog1 (benchmark-run 1
+						(let ((nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number)))))
+							(dotimes (_ times)
+								(ignore-errors (ebangs--claim-number (seq-random-elt nums)))
+								(ebangs--delete-number (seq-random-elt nums)))))
+		(ebangs-update)))
 
 (let ((type-index 0) (table-index 1) (nums-index 2))
 	(defun ebangs-make-instance (type table &optional owned-numbers)
@@ -297,7 +303,7 @@ This is the only valid way to enter a new bang."
 (ebangs-set-completer
  (concat "~~" "#")
  (lambda (_)
-	 (insert " " (int->base94 (ebangs-get-next-number)) " '()")
+	 (insert " " (int->base94 (ebangs-get-number)) " '()")
 	 (cl-decf (point))))
 
 (defvar-local ebangs--buffer-active nil
@@ -540,7 +546,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(with-temp-buffer
 		(let* ((repeat-every (/ lines count))
 					 (count (/ lines repeat-every))
-					 (nums (apply #'vector (cl-loop repeat count collect (ebangs-get-next-number))))
+					 (nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number))))
 					 (nums-copy (copy-sequence nums)))
 			(unwind-protect
 					(progn (dotimes (i lines)
