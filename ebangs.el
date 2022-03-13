@@ -429,7 +429,7 @@ It should insert the body of the bang and may have any other side effects it wis
 	)
 
 (defun ebangs--bench (times lines count)
-	(with-current-buffer (create-file-buffer "ebangs--bench")
+	(with-temp-buffer
 		(let* ((repeat-every (/ lines count))
 					 (count (/ lines repeat-every))
 					 (nums (apply #'vector (cl-loop repeat count collect (ebangs-get-next-number))))
@@ -446,9 +446,7 @@ It should insert the body of the bang and may have any other side effects it wis
 									 (cons (/ (car result) times) result)))
 				(ebangs--ht-loop inst _ (gethash "ebangs--bench" ebangs--files)
 					do (ebangs--unindex-inst inst))
-				(mapc #'ebangs--delete-number nums-copy)
-				(set-buffer-modified-p nil)
-				(kill-buffer)))))
+				(mapc #'ebangs--delete-number nums-copy)))))
 ;; (ebangs--bench 100 1000 30)
 ;; (progn (profiler-start 'cpu+mem)
 ;; 			  (ebangs--bench 10000 1000 30)
