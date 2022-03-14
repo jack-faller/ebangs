@@ -298,7 +298,7 @@ This is the only valid way to enter a new bang."
 	(unless (looking-back (regexp-opt ebangs-completers-list) nil t)
 		(error "Nothing to complete here"))
 	(funcall (gethash (match-string 0) ebangs-completers) (match-beginning 0))
-	(ebangs--activate))
+	(ebangs-activate))
 
 (ebangs-set-completer
  (concat "~~" "#")
@@ -387,7 +387,8 @@ Or the string `missing file' if the file does not exist."
 	(ebangs--ht-loop i _ ebangs--unclaimed-numbers do (ebangs--delete-number i))
 	(setf ebangs--unclaimed-numbers (make-hash-table)))
 
-(defun ebangs--activate ()
+(defun ebangs-activate ()
+	(interactive)
 	"Start tracking the current buffer for changes."
 	(unless (or ebangs--buffer-active ebangs--buffer-inhibit)
 		(setf ebangs--buffer-active t)
@@ -395,6 +396,11 @@ Or the string `missing file' if the file does not exist."
 			(puthash buffer-file-name "new buffer" ebangs--file-update-times))
 		(setf ebangs--buffer-last-change (current-time))
 		(add-hook 'after-change-functions (lambda (&rest _) (setf ebangs--buffer-last-change (current-time))))))
+(defun ebangs-check-active ()
+	(interactive)
+	(if (and (not ebangs--buffer-inhibit) ebangs--buffer-active)
+			(message "Buffer active.")
+		(message "Buffer not active.")))
 
 (defvar ebangs-link-file (file-name-concat user-emacs-directory "ebangs-linkfile")
 	"The file links are saved to.
@@ -404,7 +410,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	"Called on instancing a buffer to determine how ebangs should track it."
 	(if (not buffer-file-name) (setf ebangs--buffer-inhibit t)
 		(when (gethash buffer-file-name ebangs--files)
-			(ebangs--activate))))
+			(ebangs-activate))))
 
 (defvar ebangs-mode nil)
 (define-global-minor-mode ebangs-global-minor-mode ebangs-mode ebangs--file-setup
@@ -415,7 +421,9 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	(add-hook 'kill-emacs-hook #'ebangs-serialize)
 	(ebangs-deserialize)
 	;; update here to deal with files that have changed since last reading
-	(ebangs-update))
+	(ebangs-update)
+	;; stop tracking files that are empty
+	(ebangs--ht-remove-if (lambda (k) (not (gethash k ebangs--files)))))
 
 (defun ebangs-serialize ()
 	"Save all instances and metadata to `ebangs-link-file'."
