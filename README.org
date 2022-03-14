@@ -15,14 +15,17 @@ While =~~#= is a bang that comes included with Ebangs, you could easily make you
 #+end_src
 The above code will then give you back a list of all the todos in the current file.
 The default bang =~~#= also gave us other properties; you could ask for the line numbers or positions in the buffer by replacing ='text= with ='position= or ='line-number=.
+For a better example: see the actual implementation of =ebangs-show-file-todos= and =ebangs-show-todos=.
 * Usage:
 Put ebangs.el in your load path then in your init.el:
 #+begin_src emacs-lisp
   (require 'ebangs)
   (ebangs-global-minor-mode)
 #+end_src
-Type out the bang (eg =~~#=), then M-x complete-bang. It will insert the body of the bang, and start watching the file or buffer for changes.
-The instanced bangs persist between sessions, and will always be up to date when they are queried.
+Type out the bang (eg =~~#=), then M-x complete-bang (you may wish to bind this to
+a key). It will insert the body of the bang, and start watching the file or
+buffer for changes. The instanced bangs persist between sessions, and will
+always be up to date when they are queried.
 ** Selection:
 All selections come down to the =ebangs-loop= macro.
 #+begin_src emacs-lisp

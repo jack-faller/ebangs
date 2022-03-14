@@ -582,7 +582,8 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 ;; (progn (profiler-start 'cpu+mem)
 ;; 			  (ebangs--bench 10000 1000 30)
 ;; 			  (profiler-stop))
-(defun show-buffer-todos ()
+(defun ebangs-show-file-todos ()
+	"Prompt with the text property and location of todos in the current file."
 	(interactive)
 	(let ((alist
 				 (ebangs-select i => (ebangs-from i ((text 'text) (linum 'line-number) (pos 'position))
@@ -591,7 +592,8 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 					 (eq (ebangs-get 'type i) 'todo))))
 		(goto-char (alist-get (completing-read "Where to? " alist nil t) alist nil nil 'equal))))
 
-(defun show-todos ()
+(defun ebangs-show-todos ()
+	"Prompt with the text property and location of all todos."
 	(interactive)
 	(let* ((alist
 					;; (ebangs-select i)
