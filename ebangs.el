@@ -428,7 +428,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	;; update here to deal with files that have changed since last reading
 	(ebangs-update)
 	;; stop tracking files that are empty
-	(ebangs--ht-remove-if (lambda (k) (not (gethash k ebangs--files)))))
+	(ebangs--ht-remove-if (lambda (k) (not (gethash k ebangs--files))) ebangs--file-update-times))
 
 (defun ebangs-serialize ()
 	"Save all instances and metadata to `ebangs-linkfile'."
