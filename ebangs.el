@@ -83,7 +83,12 @@ NUM should be an integer that should no longer be in use as an id, or in a file.
 	"Make a bang instance with TYPE and OWNED-NUMBERS.
 TABLE should be a hash table containing any extra keys and values for the
 TABLE is altered by this function.
-instance, these can then be gotten by `ebangs-get'."
+OWNED-NUMBERS are the numbers from `ebangs-get-number' that can be freed for use
+in other instances when this one is destroyed.
+instance, these can then be gotten by `ebangs-get'.
+To allow them to be serialized and read from/to the linkfile, instances should
+only contain objects with can be printed readably and never another instance.
+To reference another instance, give it an id with `ebangs-get-number'."
 	(unless (cl-loop for i in owned-numbers
 									 always (numberp i))
 		(error "Owned numbers must be list of numbers got: %S" owned-numbers))
@@ -402,7 +407,7 @@ Or the string `missing file' if the file does not exist."
 			(message "Buffer active.")
 		(message "Buffer not active.")))
 
-(defvar ebangs-link-file (file-name-concat user-emacs-directory "ebangs-linkfile")
+(defvar ebangs-linkfile (file-name-concat user-emacs-directory "ebangs-linkfile")
 	"The file links are saved to.
 This should be set before `ebangs-global-minor-mode' is called.")
 
@@ -426,7 +431,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 	(ebangs--ht-remove-if (lambda (k) (not (gethash k ebangs--files)))))
 
 (defun ebangs-serialize ()
-	"Save all instances and metadata to `ebangs-link-file'."
+	"Save all instances and metadata to `ebangs-linkfile'."
 	(ebangs-update)
 	(with-temp-buffer
 		(prin1
@@ -435,13 +440,13 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		 (current-buffer))
 		(insert " ")
 		(prin1 ebangs--file-update-times (current-buffer))
-		(write-region nil nil ebangs-link-file)))
+		(write-region nil nil ebangs-linkfile)))
 
 (defun ebangs-deserialize ()
-	"Load instances and metadata from `ebangs-link-file'."
+	"Load instances and metadata from `ebangs-linkfile'."
 	(with-temp-buffer
-		(if (file-exists-p ebangs-link-file)
-				(insert-file-contents ebangs-link-file)
+		(if (file-exists-p ebangs-linkfile)
+				(insert-file-contents ebangs-linkfile)
 			(insert "() ")
 			(prin1 (make-hash-table :test 'equal) (current-buffer)))
 		(goto-char (point-min))
