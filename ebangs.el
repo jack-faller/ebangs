@@ -243,7 +243,7 @@ start of it.
 This should be called with the point on the end of the last item and will leave
 it on the end of the number."
 	(cl-incf (point))
-	(unless (looking-at (rx (+ space) (group (+? any)) (or eol (+ space))))
+	(unless (looking-at (rx (+ space) (group (+? any)) (or eol space)))
 		(error "Malformed bang, expected number got: \n\"%s\"" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (- (match-end 1) 1))
 	(base94->int (match-string 1)))
