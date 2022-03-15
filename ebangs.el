@@ -393,8 +393,8 @@ Or the string `missing file' if the file does not exist."
 	(setf ebangs--unclaimed-numbers (make-hash-table)))
 
 (defun ebangs-activate ()
+	"Start tracking edits to the current buffer."
 	(interactive)
-	"Start tracking the current buffer for changes."
 	(unless (or ebangs--buffer-active ebangs--buffer-inhibit)
 		(setf ebangs--buffer-active t)
 		(unless (gethash buffer-file-name ebangs--file-update-times)
@@ -402,6 +402,7 @@ Or the string `missing file' if the file does not exist."
 		(setf ebangs--buffer-last-change (current-time))
 		(add-hook 'after-change-functions (lambda (&rest _) (setf ebangs--buffer-last-change (current-time))))))
 (defun ebangs-check-active ()
+	"Display if the current buffer is being watched for edits."
 	(interactive)
 	(if (and (not ebangs--buffer-inhibit) ebangs--buffer-active)
 			(message "Buffer active.")
