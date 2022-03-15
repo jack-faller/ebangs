@@ -334,19 +334,19 @@ Return a list of their instances."
 (defun ebangs--set-insts (file new-table)
 	"Atomically set the instances in FILE to the ones in NEW-TABLE.
 NEW-TABLE should be an instance-table as seen in `ebangs--files'."
-	(let (indexed-insts
-				(old-table (or (gethash file ebangs--files) (make-hash-table)))
-				(old-numbers (copy-hash-table ebangs--unclaimed-numbers)))
+	(let* (indexed-insts
+				 (it (gethash file ebangs--files))
+				 (old-table (if it (copy-hash-table it) (make-hash-table)))
+				 (old-numbers (copy-hash-table ebangs--unclaimed-numbers)))
 		(ebangs--ht-loop i _ old-table
 			do (ebangs--unindex-and-delete-nums i))
 		(unwind-protect
 				(ebangs--ht-loop i _ new-table
 					do (ebangs--index-and-claim i)
 					do (push i indexed-insts)
-					finally (setf indexed-insts nil
-												old-table nil))
-			(mapc #'ebangs--unindex-and-delete-nums indexed-insts)
+					finally (setf old-table nil))
 			(when old-table
+				(mapc #'ebangs--unindex-and-delete-nums indexed-insts)
 				(setf ebangs--unclaimed-numbers old-numbers)
 				(dolist (i ebangs--unclaimed-numbers)
 					;; ensure all numbers are reset to their previous position
