@@ -129,12 +129,12 @@ TABLE should evaluate to a hash table."
 							,@body)))
 (defun ebangs-inst->list (inst)
 	"Convert an instance INST to a list of (key value) pairs."
-	(maphash #'list inst))
+	(ebangs--ht-loop k v inst collect (list k v)))
 (defun ebangs-inst-delete (key inst)
 	"Remove KEY from the instance INST.
 KEY should be a valid key to INST accessible by `ebangs-get' but should not be
 `owned-numbers', `table', or `type'."
-	(remhash key (ebangs-get 'table inst)))
+	(remhash key inst))
 
 (defvar-local ebangs--buffer-last-change nil
 	"The last time this buffer was changed.")
@@ -183,7 +183,7 @@ Through an error if unique keys are shared."
 		(when duplicates
 			(let ((to-unindex (ebangs-copy-inst inst)))
 				(dolist (i duplicates)
-					(remhash (car i) (ebangs-get 'table inst)))
+					(ebangs-inst-delete (car i) inst))
 				(ebangs--unindex-inst to-unindex))
 			(error "Duplicate unique indices: %S" duplicates))))
 (defun ebangs--index-and-claim (inst)
