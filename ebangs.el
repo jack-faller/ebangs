@@ -424,7 +424,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 							(ebangs--ht-loop _ (unique . table) ebangs--indexes
 								unless unique do (ebangs--ht-remove-if #'hash-table-empty-p table))))
 	(add-hook 'kill-emacs-hook #'ebangs-serialize)
-	(ebangs-deserialize)
+	(ebangs--deserialize)
 	;; update here to deal with files that have changed since last reading
 	(ebangs-update)
 	;; stop tracking files that are empty
@@ -442,8 +442,10 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		(prin1 ebangs--file-update-times (current-buffer))
 		(write-region nil nil ebangs-linkfile)))
 
-(defun ebangs-deserialize ()
-	"Load instances and metadata from `ebangs-linkfile'."
+(defun ebangs--deserialize ()
+	"Load instances and metadata from `ebangs-linkfile'.
+Only call this right at the start from `ebangs-global-minor-mode'; it will
+overwrite file update data and will create duplicate instances."
 	(with-temp-buffer
 		(if (file-exists-p ebangs-linkfile)
 				(insert-file-contents ebangs-linkfile)
