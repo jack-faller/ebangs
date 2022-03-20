@@ -30,7 +30,8 @@ NUM should be an elisp integer."
 						 finally (return (apply #'string acc)))))
 
 (defvar-local ebangs--buffer-inhibit nil)
-(defvar ebangs--unclaimed-numbers (make-hash-table))
+(defvar ebangs--unclaimed-numbers (make-hash-table)
+	"A hash map from numbers to the buffer they were gotten in.")
 (defvar ebangs--next-free-number 0)
 (defun ebangs--ht-first-key (ht)
 	"Get the first key in hash table HT or nil if empty."
@@ -44,7 +45,7 @@ NUM should be an elisp integer."
 	"Claim ownership of a NUM for use as an id.
 Through an error if NUM is already claimed."
 	(unless (numberp num)
-		(error "Expected num to ebangs--delete-number, got %S" num))
+		(error "Expected num to ebangs--claim-number, got %S" num))
 	(if (>= num ebangs--next-free-number)
 			(prog1 num
 				(cl-loop for i from ebangs--next-free-number below num
@@ -56,11 +57,13 @@ Through an error if NUM is already claimed."
 					(remhash num ebangs--unclaimed-numbers))
 			(error "Number \"%s\" already claimed" (int->base94 num)))))
 (defun ebangs-get-number ()
-	"Get a unique number for use as an id."
+	"Get a unique number for use as an id.
+Once a number has no instances that own it, and the buffer it was gotten in is
+dead, it may be returned from this function again."
 	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
 	(let ((num (or (ebangs--ht-first-key ebangs--free-numbers) (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number)))))
 		(remhash num ebangs--free-numbers)
-		(puthash num t ebangs--unclaimed-numbers)
+		(puthash num buffer-file-name ebangs--unclaimed-numbers)
 		num))
 (defun ebangs--delete-number (num)
 	"Free NUM, allowing it to be returned from `ebangs-get-number'.
@@ -72,12 +75,15 @@ NUM should be an integer that should no longer be in use as an id, or in a file.
 
 (defun ebangs--number-bench (times count)
 	"Get COUNT numbers are delete/claim random ones TIMES times."
-	(prog1 (benchmark-run 1
-					 (let ((nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number)))))
+	(let (nums)
+		(prog1 (benchmark-run 1
+						 (setf nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number))))
 						 (dotimes (_ times)
 							 (ignore-errors (ebangs--claim-number (seq-random-elt nums)))
-							 (ebangs--delete-number (seq-random-elt nums)))))
-		(ebangs-update)))
+							 (ebangs--delete-number (seq-random-elt nums))))
+		(mapc #'ebangs--delete-number nums))))
+
+;; (ebangs--number-bench 10000 10000) ; => (0.108076199 0 0.0)
 
 (defun ebangs-make-instance (type table &optional owned-numbers)
 	"Make a bang instance with TYPE and OWNED-NUMBERS.
@@ -390,7 +396,10 @@ Or the string `missing file' if the file does not exist."
 	;; safe to delete numbers here as all buffers have been updated
 	;; any still unclaimed can be assumed not to be present
 	(ebangs--ht-loop i _ ebangs--unclaimed-numbers do (ebangs--delete-number i))
-	(setf ebangs--unclaimed-numbers (make-hash-table)))
+	;; only delete numbers from dead buffers as they may still be in the undo history
+	(mapc #'ebangs--delete-number
+				(ebangs--ht-loop num file ebangs--unclaimed-numbers
+					unless (get-file-buffer num) collect num)))
 
 (defun ebangs-activate ()
 	"Start tracking edits to the current buffer."
@@ -586,10 +595,10 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 				(ebangs--ht-loop inst _ (copy-hash-table (gethash "ebangs--bench" ebangs--files))
 					do (ebangs--unindex-inst inst))
 				(mapc #'ebangs--delete-number nums-copy)))))
-;; (ebangs--bench 100 1000 30)
-;; (progn (profiler-start 'cpu+mem)
-;; 			  (ebangs--bench 10000 1000 30)
-;; 			  (profiler-stop))
+;; at 2GCs, 0.0015 per update, 1GC is 0.0014
+;; (ebangs--bench 1000 1000 30)
+;; (unwind-protect (progn (profiler-start 'cpu+mem) (ebangs--bench 10000 1000 30)) (profiler-stop))
+
 (defun ebangs-show-file-todos ()
 	"Prompt with the text property and location of todos in the current file."
 	(interactive)
