@@ -642,7 +642,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
  (concat "~~" ">")
  (lambda (beg)
 	 ;; remove the bang as ebangs-prompt-for-id updates, which would cause an error if it
-	 ;; read the uncompleted bang
+	 ;; tried to read the uncompleted bang
 	 (backward-delete-char (- (point) beg))
 	 (insert "~~" "> " (int->base94 (ebangs-prompt-for-id)) " \"\"")
 	 (cl-decf (point))))
