@@ -475,15 +475,19 @@ overwrite file update data and will create duplicate instances."
 												 (- (match-beginning 0) 1))))
 				(buffer-substring-no-properties text-beg text-end)))))
 
-(defun ebangs-get-inst (key value)
-	"Get the instance with KEY set to VALUE, given key is uniquely indexed."
+(defun ebangs-get-inst (key value &optional must-exist)
+	"Get the instance with KEY set to VALUE, given key is uniquely indexed.
+If MUST-EXIST, signal an error when the instance doesn't."
 	(ebangs-update)
 	(let* ((it (gethash key ebangs--indexes))
 				 (unique (car it))
-				 (table (cdr it)))
+				 (table (cdr it))
+				 out)
 		(unless it (error "Key %S is not indexed" key))
 		(unless unique (error "Key %S is not unique" key))
-		(gethash value table)))
+		(setf out (gethash value table))
+		(unless (and out must-exist) (error "No instance with %s set to %s" key value))
+		out))
 
 ;; potentially bad behaviour from nested selects / modifying values inside a select, oh well.
 (defmacro ebangs-loop (accumulator var &rest body)
@@ -651,11 +655,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(interactive)
 	(re-search-backward (rx (or space bol)))
 	(cl-decf (point))
-	(let* ((id (ebangs-read-number))
-				 (inst (ebangs-get-inst 'id id)))
-		(if inst
-				(ebangs-visit-inst inst)
-			(error "Instance “%s” does not exist" (int->base94 id)))))
+	(ebangs-visit-inst (ebangs-get-inst 'id (ebangs-read-number) t)))
 
 (defun ebangs-show-file-todos ()
 	"Prompt with the text property and location of todos in the current file."
