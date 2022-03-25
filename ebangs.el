@@ -55,7 +55,7 @@ Through an error if NUM is already claimed."
 				(progn
 					(remhash num ebangs--free-numbers)
 					(remhash num ebangs--unclaimed-numbers))
-			(error "Number \"%s\" already claimed" (int->base94 num)))))
+			(error "Number “%s” already claimed" (int->base94 num)))))
 (defun ebangs-get-number ()
 	"Get a unique number for use as an id.
 Once a number has no instances that own it, and the buffer it was gotten in is
@@ -63,7 +63,7 @@ dead, it may be returned from this function again."
 	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
 	(let ((num (or (ebangs--ht-first-key ebangs--free-numbers) (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number)))))
 		(remhash num ebangs--free-numbers)
-		(puthash num buffer-file-name ebangs--unclaimed-numbers)
+		(puthash num (or buffer-file-name (error "Can not claim number in buffer without file.")) ebangs--unclaimed-numbers)
 		num))
 (defun ebangs--delete-number (num)
 	"Free NUM, allowing it to be returned from `ebangs-get-number'.
@@ -250,7 +250,7 @@ This should be called with the point on the end of the last item and will leave
 it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space) (group (+? any)) (or eol space)))
-		(error "Malformed bang, expected number got: \n\"%s\"" (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Malformed bang, expected number got: \n“%s”" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (- (match-end 1) 1))
 	(base94->int (match-string 1)))
 (defun ebangs-read-sexp ()
@@ -259,7 +259,7 @@ This should be called with the point on the end of the last item and will leave
 it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space)))
-		(error "Malformed bang, expected space got: \n\"%s\"" (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Malformed bang, expected space got: \n“%s”" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (match-end 0))
 	(let* ((beg (point))
 				 (end (progn (forward-sexp)
