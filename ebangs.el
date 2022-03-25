@@ -451,7 +451,7 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		 (ebangs--ht-loop _ table ebangs--files
 			 nconc (ebangs--ht-loop i _ table collect i))
 		 (current-buffer))
-		(insert " ")
+		(newline)
 		(prin1 ebangs--file-update-times (current-buffer))
 		(write-region nil nil ebangs-linkfile)))
 
