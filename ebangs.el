@@ -417,7 +417,7 @@ Or the string `missing file' if the file does not exist."
 			(message "Buffer active.")
 		(message "Buffer not active.")))
 
-(defvar ebangs-linkfile (file-name-concat user-emacs-directory "ebangs-linkfile")
+(defvar ebangs-linkfile (concat (file-name-as-directory user-emacs-directory) "ebangs-linkfile")
 	"The file links are saved to.
 This should be set before `ebangs-global-minor-mode' is called.")
 
