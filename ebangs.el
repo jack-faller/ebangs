@@ -360,6 +360,15 @@ NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 				(ebangs--ht-loop i _ old-table
 					do (ebangs--index-and-claim i))))))
 
+(defmacro ebangs--with-file-buf (file &rest body)
+	"Create a temporary buffer with the file name FILE."
+	(declare (indent 1))
+	`(with-temp-buffer
+		 (setf buffer-file-name ,file)
+		 (unwind-protect (progn ,@body)
+			 ;; unset the file name to avoid a prompt for modified file
+			 (setf buffer-file-name nil))))
+
 (defun ebangs--update-file (&optional file buffer)
 	"Update the instances from FILE.
 If FILE is not given the current buffer is assumed.
@@ -369,7 +378,7 @@ exist it will create create a temporary one and read FILE into it."
 	(if (setf buffer (or buffer (get-file-buffer file)))
 			(with-current-buffer buffer
 				(ebangs--set-insts file (ebangs--read-buffer-instances file)))
-		(with-temp-buffer
+		(ebangs--with-file-buf file
 			(ignore-errors (insert-file-contents file))
 			(ebangs--set-insts file (ebangs--read-buffer-instances file)))))
 
@@ -577,7 +586,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 
 (defun ebangs--bench (times lines count)
 	"Benchmark updating a file with LINES line and COUNT bangs TIMES times."
-	(with-temp-buffer
+	(ebangs--with-file-buf "ebangs--bench"
 		(let* ((repeat-every (/ lines count))
 					 (count (/ lines repeat-every))
 					 (nums (apply #'vector (cl-loop repeat count collect (ebangs-get-number))))
