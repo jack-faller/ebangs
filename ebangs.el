@@ -475,7 +475,7 @@ overwrite file update data and will create duplicate instances."
 												 (- (match-beginning 0) 1))))
 				(buffer-substring-no-properties text-beg text-end)))))
 
-(defun ebangs-get-inst (key value &optional must-exist)
+(defun ebangs-inst-with (key value &optional must-exist)
 	"Get the instance with KEY set to VALUE, given key is uniquely indexed.
 If MUST-EXIST, signal an error when the instance doesn't."
 	(ebangs-update)
@@ -655,7 +655,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(interactive)
 	(re-search-backward (rx (or space bol)))
 	(cl-decf (point))
-	(ebangs-visit-inst (ebangs-get-inst 'id (ebangs-read-number) t)))
+	(ebangs-visit-inst (ebangs-inst-with 'id (ebangs-read-number) t)))
 
 (defun ebangs-show-file-todos ()
 	"Prompt with the text property and location of todos in the current file."
