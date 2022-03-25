@@ -601,9 +601,9 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 									 (newline))
 								 (let ((result (benchmark-run-compiled times (ebangs--update-file "ebangs--bench" (current-buffer)))))
 									 (cons (/ (car result) times) result)))
-				(ebangs--ht-loop inst _ (copy-hash-table (gethash "ebangs--bench" ebangs--files))
-					do (ebangs--unindex-inst inst))
-				(mapc #'ebangs--delete-number nums-copy)))))
+				(mapc #'ebangs--delete-number nums-copy)
+				(ebangs--ht-loop inst _ (copy-hash-table (or (gethash "ebangs--bench" ebangs--files) (make-hash-table)))
+					do (ebangs--unindex-inst inst))))))
 ;; at 2GCs, 0.0015 per update, 1GC is 0.0014
 ;; (ebangs--bench 1000 1000 30)
 ;; (unwind-protect (progn (profiler-start 'cpu+mem) (ebangs--bench 10000 1000 30)) (profiler-stop))
