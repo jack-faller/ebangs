@@ -63,7 +63,7 @@ dead, it may be returned from this function again."
 	(when ebangs--buffer-inhibit (error "Ebangs is inhibited in this buffer"))
 	(let ((num (or (ebangs--ht-first-key ebangs--free-numbers) (prog1 ebangs--next-free-number (cl-incf ebangs--next-free-number)))))
 		(remhash num ebangs--free-numbers)
-		(puthash num (or buffer-file-name (error "Can not claim number in buffer without file.")) ebangs--unclaimed-numbers)
+		(puthash num (or buffer-file-name (error "Can not claim number in buffer without file")) ebangs--unclaimed-numbers)
 		num))
 (defun ebangs--delete-number (num)
 	"Free NUM, allowing it to be returned from `ebangs-get-number'.
@@ -336,7 +336,7 @@ NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 					do (ebangs--index-and-claim i))))))
 
 (defmacro ebangs--with-file-buf (file &rest body)
-	"Create a temporary buffer with the file name FILE."
+	"Create a temporary buffer with the file name FILE, evaluate BODY in that buffer."
 	(declare (indent 1))
 	`(with-temp-buffer
 		 (setf buffer-file-name ,file)
@@ -380,7 +380,7 @@ Or the string `missing file' if the file does not exist."
 	;; only delete numbers from dead buffers as they may still be in the undo history
 	(mapc #'ebangs--delete-number
 				(ebangs--ht-loop num file ebangs--unclaimed-numbers
-					unless (get-file-buffer num) collect num)))
+					unless (get-file-buffer file) collect num)))
 
 (defun ebangs-activate ()
 	"Start tracking edits to the current buffer."
@@ -632,7 +632,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 		 (puthash 'position beg table)
 		 (puthash 'line-number (line-number-at-pos beg) table)
 		 (ebangs-make-instance 'link table (list)))))
-~~> ! "link"
+
 (ebangs-set-completer
  (concat "~~" "#")
  (lambda (_)
@@ -652,6 +652,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(find-file (ebangs-get 'file inst))
 	(goto-char (ebangs-get 'position inst)))
 (defun ebangs-goto-inst-at-point ()
+	"Go to the instance for the number at the point."
 	(interactive)
 	(re-search-backward (rx (or space bol)))
 	(cl-decf (point))
@@ -672,8 +673,11 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(interactive)
 	(let* ((alist
 					;; (ebangs-select i)
-					(ebangs-select i => (ebangs-from i ((text 'text) (file 'file) (linum 'line-number) (pos 'position))
-																(cons (format "%s.%s: %S: %s" (file-name-base file) (file-name-extension file) linum text) i))
+					(ebangs-select
+						i => (ebangs-from i ((text 'text) (file 'file) (linum 'line-number))
+									 (cons
+										(format "%s.%s: %S: %s" (file-name-base file) (file-name-extension file) linum text)
+										i))
 						:from (type 'todo)))
 				 (result (alist-get (completing-read "Where to? " alist nil t) alist nil nil 'equal)))
 		(ebangs-visit-inst result)))
