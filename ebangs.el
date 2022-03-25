@@ -499,6 +499,7 @@ overwrite file update data and will create duplicate instances."
 
 (defun ebangs-get-inst (key value)
 	"Get the instance with KEY set to VALUE, given key is uniquely indexed."
+	(ebangs-update)
 	(let* ((it (gethash key ebangs--indexes))
 				 (unique (car it))
 				 (table (cdr it)))
