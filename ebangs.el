@@ -567,7 +567,7 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(declare (indent defun))
 	`(ebangs-loop do ,var ,@body))
 
-(defun ebangs-get-id ()
+(defun ebangs-prompt-for-id ()
 	"Prompt for an instance with an ID and return its ID."
 	(let ((alist (ebangs-select i => (cons (prin1-to-string (ebangs-inst->list i)) (ebangs-get 'id i))
 								 :from id)))
@@ -641,10 +641,10 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 (ebangs-set-completer
  (concat "~~" ">")
  (lambda (beg)
-	 ;; remove the bang as ebangs-get-id updates, which would cause an error if it
+	 ;; remove the bang as ebangs-prompt-for-id updates, which would cause an error if it
 	 ;; read the uncompleted bang
 	 (backward-delete-char (- (point) beg))
-	 (insert "~~" "> " (int->base94 (ebangs-get-id)) " \"\"")
+	 (insert "~~" "> " (int->base94 (ebangs-prompt-for-id)) " \"\"")
 	 (cl-decf (point))))
 
 (defun ebangs-visit-inst (inst)
