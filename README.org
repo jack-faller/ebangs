@@ -14,7 +14,7 @@ While =~~#= is a bang that comes included with Ebangs, you could easily make you
     (eq (ebangs-get 'type i) 'todo))
 #+end_src
 The above code will then give you back a list of all the todos in the current file.
-The default bang =~~#= also gave us other properties; you could ask for the line numbers or positions in the buffer by replacing ='text= with ='position= or ='line-number=.
+The default bang =~~#= also gave us other properties; you could ask for the line numbers or positions in the buffer by replacing =​'text= with =​'position= or =​'line-number=.
 For a better example: see the actual implementation of =ebangs-show-file-todos= and =ebangs-show-todos=.
 * Usage:
 Put ebangs.el in your load path then in your init.el:
@@ -38,7 +38,7 @@ All selections come down to the =ebangs-loop= macro.
 - It loops VAR over all of the bangs instance.
 - Only when all of the BODY forms return true is the value collected.
 - The => COLLECTION-FORM is for the value collected (or just VAR if none is supplied), using the common lisp loop accumulator ACCUMULATOR.
-- INDEX is a key from =ebangs-get=. Indexed keys are faster to lookup than regular ones, by default only ='file=, ='id=, and ='type= are indexed.
+- INDEX is a key from =ebangs-get=. Indexed keys are faster to lookup than regular ones, by default only =​'file=, =​'id=, and =​'type= are indexed.
 The =ebangs-select= you saw earlier is just loop with =collect= passed as the accumulator.
 ** Defining your own:
 The =~~#= bang is defined as follows:
