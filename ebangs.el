@@ -250,7 +250,7 @@ This should be called with the point on the end of the last item and will leave
 it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space) (group (+? any)) (or eol space)))
-		(error "Malformed bang, expected number got: \n“%s”" (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Expected number got: “%s”" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (- (match-end 1) 1))
 	(base94->int (match-string 1)))
 (defun ebangs-read-sexp ()
@@ -259,29 +259,13 @@ This should be called with the point on the end of the last item and will leave
 it on the end of the number."
 	(cl-incf (point))
 	(unless (looking-at (rx (+ space)))
-		(error "Malformed bang, expected space got: \n“%s”" (buffer-substring-no-properties (point) (line-end-position))))
+		(error "Expected space got: “%s”" (buffer-substring-no-properties (point) (line-end-position))))
 	(setf (point) (match-end 0))
 	(let* ((beg (point))
 				 (end (progn (forward-sexp)
 										 (point))))
 		(prog1 (read (buffer-substring-no-properties beg end))
 			(setf (point) (- end 1)))))
-(ebangs-set-type
- (concat "~~" "#")
- (lambda (beg)
-	 (let* ((id (ebangs-read-number))
-					(exp (ebangs-read-sexp))
-					(items (eval exp t))
-					type (table (make-hash-table)))
-		 (unless (and (listp items) (car items))
-			 (error "Expected link expression to evaluate to list with a type, got:\n%S from \n%S" items exp))
-		 (setf type (car items))
-		 (dolist (i (cdr items))
-			 (puthash (car i) (cadr i) table))
-		 (puthash 'id id table)
-		 (puthash 'position beg table)
-		 (puthash 'line-number (line-number-at-pos beg) table)
-		 (ebangs-make-instance type table (list id)))))
 
 (defvar ebangs-completers (make-hash-table :test 'equal)
 	"A hash map from bangs to functions that complete them as in `ebangs-complete'.")
@@ -310,12 +294,6 @@ This is the only valid way to enter a new bang."
 		(error "Nothing to complete here"))
 	(funcall (gethash (match-string 0) ebangs-completers) (match-beginning 0))
 	(ebangs-activate))
-
-(ebangs-set-completer
- (concat "~~" "#")
- (lambda (_)
-	 (insert " " (int->base94 (ebangs-get-number)) " '()")
-	 (cl-decf (point))))
 
 (defvar-local ebangs--buffer-active nil
 	"Non nil once a bang has been put in a buffer.")
@@ -585,6 +563,12 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(declare (indent defun))
 	`(ebangs-loop do ,var ,@body))
 
+(defun ebangs-get-id ()
+	"Prompt for an instance with an ID and return its ID."
+	(let ((alist (ebangs-select i => (cons (prin1-to-string (ebangs-inst->list i)) (ebangs-get 'id i))
+								 :from id)))
+		(alist-get (completing-read "Select instance: " alist nil t) alist nil nil 'equal)))
+
 (defun ebangs-inspect ()
 	"Show a buffer with all instances."
 	(interactive)
@@ -616,6 +600,63 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 ;; (ebangs--bench 1000 1000 30)
 ;; (unwind-protect (progn (profiler-start 'cpu+mem) (ebangs--bench 10000 1000 30)) (profiler-stop))
 
+(ebangs-set-type
+ (concat "~~" "#")
+ (lambda (beg)
+	 (let* ((id (ebangs-read-number))
+					(exp (ebangs-read-sexp))
+					(items (eval exp t))
+					type (table (make-hash-table)))
+		 (unless (and (listp items) (car items))
+			 (error "Expected link expression to evaluate to list with a type, got:\n%S from \n%S" items exp))
+		 (setf type (car items))
+		 (dolist (i (cdr items))
+			 (puthash (car i) (cadr i) table))
+		 (puthash 'id id table)
+		 (puthash 'position beg table)
+		 (puthash 'line-number (line-number-at-pos beg) table)
+		 (ebangs-make-instance type table (list id)))))
+(ebangs-set-type
+ (concat "~~" ">")
+ (lambda (beg)
+	 (let* ((dest (ebangs-read-number))
+					(text (ebangs-read-sexp))
+					(table (make-hash-table)))
+		 (unless (stringp text) (error "Link should have a string following it"))
+		 (puthash 'dest dest table)
+		 (puthash 'text text table)
+		 (puthash 'position beg table)
+		 (puthash 'line-number (line-number-at-pos beg) table)
+		 (ebangs-make-instance 'link table (list)))))
+~~> ! "link"
+(ebangs-set-completer
+ (concat "~~" "#")
+ (lambda (_)
+	 (insert " " (int->base94 (ebangs-get-number)) " '()")
+	 (cl-decf (point))))
+(ebangs-set-completer
+ (concat "~~" ">")
+ (lambda (beg)
+	 ;; remove the bang as ebangs-get-id updates, which would cause an error if it
+	 ;; read the uncompleted bang
+	 (backward-delete-char (- (point) beg))
+	 (insert "~~" "> " (int->base94 (ebangs-get-id)) " \"\"")
+	 (cl-decf (point))))
+
+(defun ebangs-visit-inst (inst)
+	"Go to the location of INST using its position and file attributes."
+	(find-file (ebangs-get 'file inst))
+	(goto-char (ebangs-get 'position inst)))
+(defun ebangs-goto-inst-at-point ()
+	(interactive)
+	(re-search-backward (rx (or space bol)))
+	(cl-decf (point))
+	(let* ((id (ebangs-read-number))
+				 (inst (ebangs-get-inst 'id id)))
+		(if inst
+				(ebangs-visit-inst inst)
+			(error "Instance “%s” does not exist" (int->base94 id)))))
+
 (defun ebangs-show-file-todos ()
 	"Prompt with the text property and location of todos in the current file."
 	(interactive)
@@ -632,11 +673,10 @@ If all forms in BODY evaluate as non-nil, collect COLLECTION-FORM using the
 	(let* ((alist
 					;; (ebangs-select i)
 					(ebangs-select i => (ebangs-from i ((text 'text) (file 'file) (linum 'line-number) (pos 'position))
-																(cons (format "%s.%s: %S: %s" (file-name-base file) (file-name-extension file) linum text) (cons file pos)))
+																(cons (format "%s.%s: %S: %s" (file-name-base file) (file-name-extension file) linum text) i))
 						:from (type 'todo)))
 				 (result (alist-get (completing-read "Where to? " alist nil t) alist nil nil 'equal)))
-	  (find-file (car result))
-	  (goto-char (cdr result))))
+		(ebangs-visit-inst result)))
 
 (provide 'ebangs)
 ;;; ebangs.el ends here
