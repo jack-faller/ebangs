@@ -455,6 +455,19 @@ This should be set before `ebangs-global-minor-mode' is called.")
 		(prin1 ebangs--file-update-times (current-buffer))
 		(write-region nil nil ebangs-linkfile)))
 
+(defun ebangs--reset-all ()
+	"Reset all instances to empty requiring re-read of everything."
+	(let* ((old-indexes (ebangs--ht-loop key (unique . index) ebangs--indexes
+												collect (list key unique (hash-table-test index)))))
+		(setf ebangs--indexes (make-hash-table))
+		(mapc (lambda (a) (apply #'ebangs-index-on a)) old-indexes))
+	(setf ebangs--files (cdr (gethash 'file ebangs--indexes)))
+	(setf ebangs--free-numbers (make-hash-table))
+	(setf ebangs--next-free-number 0)
+	(setf ebangs--unclaimed-numbers (make-hash-table))
+	(ebangs--ht-loop k _ ebangs--file-update-times
+		do (puthash k (current-time) ebangs--file-update-times)))
+
 (defun ebangs--deserialize ()
 	"Load instances and metadata from `ebangs-linkfile'.
 Only call this right at the start from `ebangs-global-minor-mode'; it will
