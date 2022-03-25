@@ -354,9 +354,6 @@ NEW-TABLE should be an instance-table as seen in `ebangs--files'."
 			(when old-table
 				(mapc #'ebangs--unindex-and-delete-nums indexed-insts)
 				(setf ebangs--unclaimed-numbers old-numbers)
-				(dolist (i ebangs--unclaimed-numbers)
-					;; ensure all numbers are reset to their previous position
-					(ignore-errors (ebangs--claim-number i)))
 				(ebangs--ht-loop i _ old-table
 					do (ebangs--index-and-claim i))))))
 
@@ -402,9 +399,6 @@ Or the string `missing file' if the file does not exist."
 				 (unless (equal update-time change-time)
 					 (ebangs--update-file file)
 					 (puthash file change-time ebangs--file-update-times))))
-	;; safe to delete numbers here as all buffers have been updated
-	;; any still unclaimed can be assumed not to be present
-	(ebangs--ht-loop i _ ebangs--unclaimed-numbers do (ebangs--delete-number i))
 	;; only delete numbers from dead buffers as they may still be in the undo history
 	(mapc #'ebangs--delete-number
 				(ebangs--ht-loop num file ebangs--unclaimed-numbers
