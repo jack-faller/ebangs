@@ -29,13 +29,12 @@ always be up to date when they are queried.
 ** Selection:
 All selections come down to the =ebangs-loop= macro.
 #+begin_src emacs-lisp
-  (ebangs-loop ACCUMULATOR VAR [=> COLLECTION-FORM]
+  (ebangs-loop ACCUMULATOR VAR [=> COLLECTION-FORM] ; optional parts are in square brackets
       [:from INDEX]
       or [:from (INDEX VALUE)]
       or [:from (INDEX VAR :where CONDITIONS...)]
     BODY...)
 #+end_src
-- The parts in square brackets are optional.
 - It loops VAR over all of the bangs instance.
 - Only when all of the BODY forms return true is the value collected.
 - The => COLLECTION-FORM is for the value collected (or just VAR if none is supplied), using the common lisp loop accumulator ACCUMULATOR.
@@ -69,7 +68,7 @@ The =~~#= bang is defined as follows:
 The first defines a way to read a type of bang from the buffer, the second a way to complete it.
 ** File Tracking
 Only buffers with related files can be tracked for changes.
-Files without bangs aren't watched for updated until one is inserted by =ebangs-complete=, this is why I can write bangs in this file without them being picked up.
+Files without bangs aren't watched for updates until one is inserted by =ebangs-complete=, this is why I can write bangs in this file without them being picked up.
 If a file isn't active (you can check with =ebangs-check-active=), you can call =ebangs-activate= in the buffer to start tracking it.
 * Other examples:
 Ebangs isn't just todos, you could define a bang for anything you need. You
@@ -85,7 +84,7 @@ For instance you might:
   End back.
 #+end_src
 =ebangs-get-paragraph= is just a function which returns a string of the lines between the next Begin:/End. pair.
-Or use a new bang to link to others:
+You could also use a bang to link to others:
 #+begin_src
   ~~> a "Look at my cool flashcard! (and this link to it)"
 #+end_src
