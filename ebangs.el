@@ -261,11 +261,7 @@ it on the end of the number."
   (unless (looking-at (rx (+ space)))
 	(error "Expected space got: “%s”" (buffer-substring-no-properties (point) (line-end-position))))
   (setf (point) (match-end 0))
-  (let* ((beg (point))
-		 (end (progn (forward-sexp)
-					 (point))))
-	(prog1 (read (buffer-substring-no-properties beg end))
-	  (setf (point) (- end 1)))))
+  (read (current-buffer)))
 
 (defvar ebangs-completers (make-hash-table :test 'equal)
   "A hash map from bangs to functions that complete them as in `ebangs-complete'.")
