@@ -37,9 +37,10 @@ All selections come down to the =ebangs-loop= macro.
 #+end_src
 - It loops =VAR= over all of the bangs instance.
 - Only when all of the =BODY= forms return true is the value collected.
-- The ==> COLLECTION-FORM= is for the value collected (or just =VAR= if none is supplied), using the common lisp loop accumulator =ACCUMULATOR=.
+- The =​=> COLLECTION-FORM= is for the value collected (or just =VAR= if none is supplied), using the common lisp loop accumulator =ACCUMULATOR=.
 - =INDEX= is a key from =ebangs-get=. Indexed keys are faster to lookup than regular ones, by default only =​'file=, =​'id=, and =​'type= are indexed.
-The =ebangs-select= you saw earlier is just loop with =collect= passed as the accumulator.
+The =ebangs-select= you saw earlier is just a shorthand for loop with =collect=
+passed as the accumulator.
 ** Defining your own:
 The =~~#= bang is defined as follows:
 #+begin_src emacs-lisp
