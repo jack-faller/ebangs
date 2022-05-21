@@ -71,6 +71,7 @@ The first defines a way to read a type of bang from the buffer, the second a way
 Only buffers with related files can be tracked for changes.
 Files without bangs aren't watched for updates until one is inserted by =ebangs-complete=, this is why I can write bangs in this file without them being picked up.
 If a file isn't active (you can check with =ebangs-check-active=), you can call =ebangs-activate= in the buffer to start tracking it.
+If a file is moved, the new location won't be tracked, so you should activate it quickly to avoid clashing IDs and re-instance the bangs.
 * Other examples:
 Ebangs isn't just todos, you could define a bang for anything you need. You
 might start off just putting some properties in a default bang, then define a
