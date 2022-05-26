@@ -459,8 +459,12 @@ overwrite file update data and will create duplicate instances."
 	  (message "%S" insts)
 	  (dolist (i insts)
 		(ebangs--index-and-claim i)))))
+
 (defun ebangs-get-paragraph (name)
-  "Get the string between the next lines with `Begin NAME:' and `End NAME.'."
+  "Get the string between the next lines with `Begin NAME:' and `End NAME.'.
+Lines need not exclusively contain the begin/end expression.
+Any other information on the line containing Begin/End will be ignored.
+The final newline in the delimited text is included."
   (save-match-data
 	(save-excursion
 	  (let* ((text-beg (progn
@@ -468,7 +472,7 @@ overwrite file update data and will create duplicate instances."
 						 (+ (match-end 0) 1)))
 			 (text-end (progn
 						 (re-search-forward (rx (* any) "End" (+ space) (literal name) "."))
-						 (- (match-beginning 0) 1))))
+						 (match-beginning 0))))
 		(buffer-substring-no-properties text-beg text-end)))))
 
 (defun ebangs-inst-with (key value &optional must-exist)
