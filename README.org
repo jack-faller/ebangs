@@ -76,9 +76,9 @@ If a file is moved, the new location won't be tracked, so you should activate it
 Ebangs isn't just todos, you could define a bang for anything you need. You
 might start off just putting some properties in a default bang, then define a
 new bang and an entirely new set of functions to work with it.
-For instance you might:
+For instance you might define a flashcard using the following default bang:
 #+begin_src
-  ~~# a `(flashcard (front ,(ebangs-get-paragraph "front")) (back (ebangs-get-paragraph "back")))
+  ~~# a `(flashcard (front ,(ebangs-get-paragraph "front")) (back ,(ebangs-get-paragraph "back")))
   Begin front:
    some text for the front
   End front. Begin back:
